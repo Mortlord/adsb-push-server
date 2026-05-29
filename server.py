@@ -12,7 +12,23 @@ VAPID_PUBLIC_KEY  = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_EMAIL       = os.environ.get('VAPID_EMAIL', 'admin@example.com')
 VAPID_CLAIMS      = {"sub": f"mailto:{VAPID_EMAIL}"}
 
-subscriptions = []
+SUBS_FILE = '/tmp/subscriptions.json'
+
+def load_subscriptions():
+    try:
+        with open(SUBS_FILE) as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_subscriptions(subs):
+    try:
+        with open(SUBS_FILE, 'w') as f:
+            json.dump(subs, f)
+    except Exception as e:
+        print(f"Save error: {e}")
+
+subscriptions = load_subscriptions()
 
 @app.route('/vapid-public-key', methods=['GET'])
 def get_vapid_key():
@@ -20,27 +36,34 @@ def get_vapid_key():
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe():
+    global subscriptions
     sub = request.json
-    if sub and sub not in subscriptions:
-        subscriptions.append(sub)
+    # Endpoint als eindeutiger Key -- keine Duplikate
+    endpoint = sub.get('endpoint', '')
+    subscriptions = [s for s in subscriptions if s.get('endpoint') != endpoint]
+    subscriptions.append(sub)
+    save_subscriptions(subscriptions)
     print(f"Subscriptions: {len(subscriptions)}")
     return jsonify({'ok': True})
 
 @app.route('/unsubscribe', methods=['POST'])
 def unsubscribe():
+    global subscriptions
     sub = request.json
-    if sub in subscriptions:
-        subscriptions.remove(sub)
+    endpoint = sub.get('endpoint', '')
+    subscriptions = [s for s in subscriptions if s.get('endpoint') != endpoint]
+    save_subscriptions(subscriptions)
     return jsonify({'ok': True})
 
 @app.route('/check', methods=['POST'])
 def check():
+    global subscriptions
     data      = request.json
     favorites = set(data.get('favorites', []))
     active    = set(data.get('active', []))
     matches   = favorites & active
 
-    print(f"Check: favorites={favorites}, active={len(active)}, matches={matches}")
+    print(f"Check: favorites={favorites}, active={len(active)}, matches={matches}, subs={len(subscriptions)}")
 
     if not matches or not subscriptions:
         return jsonify({'matches': list(matches)})
@@ -61,9 +84,13 @@ def check():
             print(f"Push failed: {e}")
             if '410' in str(e) or '404' in str(e):
                 dead.append(sub)
+        except Exception as e:
+            print(f"Push error: {e}")
 
     for d in dead:
         subscriptions.remove(d)
+    if dead:
+        save_subscriptions(subscriptions)
 
     return jsonify({'matches': list(matches), 'notified': len(subscriptions)})
 
