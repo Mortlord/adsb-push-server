@@ -1,36 +1,37 @@
-# ADSB Radar -- Push Notification Server
+# ADSB Radar – Push Server
 
-Minimaler Flask-Server für Web Push Notifications.
+Hintergrund-Server für Telegram-Benachrichtigungen des ADSB Radar.
+
+## Funktion
+
+- Empfängt Standort, Radius, Favoriten und Telegram Chat-ID von der App
+- Pollt alle 60s [airplanes.live](https://airplanes.live) mit diesen Daten
+- Sendet Telegram-Nachricht wenn ein Favorit im Alert-Radius auftaucht
+- Aktiv zwischen 08:00 und 23:59 Uhr (Europe/Berlin)
 
 ## Setup
 
-### 1. VAPID Keys generieren
+### 1. Railway Deployment
 
-```bash
-pip install pywebpush cryptography
-python generate_keys.py
-```
+1. Dieses Repo auf Railway deployen
+2. Environment Variables setzen:
 
-### 2. Railway Deployment
+| Variable | Wert |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Token von @BotFather |
 
-1. Dieses Repo auf GitHub pushen
-2. Railway → New Project → Deploy from GitHub Repo
-3. Environment Variables setzen:
-   - `VAPID_PRIVATE_KEY` -- aus generate_keys.py
-   - `VAPID_PUBLIC_KEY`  -- aus generate_keys.py
-   - `VAPID_EMAIL`       -- deine E-Mail
+### 2. Telegram Bot einrichten
 
-### 3. URL in index.html eintragen
-
-Nach dem Deployment gibt Railway eine URL wie `https://adsb-push-server.railway.app`.
-Diese URL in `index.html` als `PUSH_SERVER_URL` eintragen.
+1. Telegram → [@BotFather](https://t.me/BotFather) → `/newbot`
+2. Token als `TELEGRAM_BOT_TOKEN` in Railway eintragen
+3. Bot öffnen → `/start`
+4. Chat-ID abrufen: `https://<railway-url>/get-chat-id`
+5. Chat-ID in der ADSB Radar App eintragen
 
 ## Endpunkte
 
 | Endpunkt | Methode | Zweck |
 |---|---|---|
-| `/vapid-public-key` | GET | Public Key für Browser |
-| `/subscribe` | POST | Push-Subscription speichern |
-| `/unsubscribe` | POST | Subscription löschen |
-| `/check` | POST | Favoriten prüfen, Push senden |
-| `/health` | GET | Status |
+| `/update` | POST | Standort + Favoriten von der App empfangen |
+| `/get-chat-id` | GET | Telegram Chat-ID ermitteln |
+| `/health` | GET | Status prüfen |
