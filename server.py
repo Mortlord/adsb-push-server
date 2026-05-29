@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pywebpush import webpush, WebPushException
@@ -13,6 +14,10 @@ VAPID_EMAIL       = os.environ.get('VAPID_EMAIL', 'admin@example.com')
 VAPID_CLAIMS      = {"sub": f"mailto:{VAPID_EMAIL}"}
 
 SUBS_FILE = '/tmp/subscriptions.json'
+COOLDOWN_SECONDS = 300  # 5 Minuten pro Callsign
+
+# {callsign: timestamp_last_notified}
+notified_cache = {}
 
 def load_subscriptions():
     try:
@@ -56,18 +61,25 @@ def unsubscribe():
 
 @app.route('/check', methods=['POST'])
 def check():
-    global subscriptions
+    global subscriptions, notified_cache
     data      = request.json
     favorites = set(data.get('favorites', []))
     active    = set(data.get('active', []))
     matches   = favorites & active
 
-    print(f"Check: favorites={favorites}, active={len(active)}, matches={matches}, subs={len(subscriptions)}")
-
     if not matches or not subscriptions:
         return jsonify({'matches': list(matches)})
 
-    message = '✈ ' + ', '.join(sorted(matches)) + ' in deinem Radar!'
+    # Nur Callsigns die nicht im Cooldown sind
+    now = time.time()
+    new_matches = {cs for cs in matches if now - notified_cache.get(cs, 0) > COOLDOWN_SECONDS}
+
+    print(f"Check: matches={matches}, new={new_matches}, subs={len(subscriptions)}")
+
+    if not new_matches:
+        return jsonify({'matches': list(matches), 'cooldown': True})
+
+    message = '✈ ' + ', '.join(sorted(new_matches)) + ' in deinem Radar!'
     dead = []
 
     for sub in subscriptions:
@@ -79,8 +91,10 @@ def check():
                 vapid_claims=VAPID_CLAIMS
             )
             print(f"Push sent OK: {message}")
+            for cs in new_matches:
+                notified_cache[cs] = now
         except WebPushException as e:
-            print(f"Push failed ({e.response.status_code if e.response else 'no response'}): {e}")
+            print(f"Push failed: {e}")
             if e.response and e.response.status_code in (404, 410):
                 dead.append(sub)
         except Exception as e:
@@ -91,7 +105,7 @@ def check():
     if dead:
         save_subscriptions(subscriptions)
 
-    return jsonify({'matches': list(matches), 'notified': len(subscriptions)})
+    return jsonify({'matches': list(matches), 'notified': list(new_matches)})
 
 @app.route('/health', methods=['GET'])
 def health():
