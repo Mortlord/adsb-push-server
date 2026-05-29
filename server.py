@@ -1,8 +1,13 @@
 import os
 import json
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pywebpush import webpush, WebPushException
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from py_vapid import Vapid
+import base64, time, jwt
 
 app = Flask(__name__)
 CORS(app)
@@ -10,7 +15,6 @@ CORS(app)
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_PUBLIC_KEY  = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_EMAIL       = os.environ.get('VAPID_EMAIL', 'admin@example.com')
-VAPID_CLAIMS      = {"sub": f"mailto:{VAPID_EMAIL}"}
 
 SUBS_FILE = '/tmp/subscriptions.json'
 
@@ -30,6 +34,29 @@ def save_subscriptions(subs):
 
 subscriptions = load_subscriptions()
 
+def send_push(sub, message):
+    """Send push notification using requests directly."""
+    endpoint = sub['endpoint']
+    
+    # Vapid token
+    vapid = Vapid.from_string(VAPID_PRIVATE_KEY)
+    audience = '/'.join(endpoint.split('/')[:3])
+    claims = {
+        'sub': f'mailto:{VAPID_EMAIL}',
+        'aud': audience,
+        'exp': int(time.time()) + 3600
+    }
+    token = vapid.sign(claims)
+    
+    headers = {
+        'Authorization': f'vapid t={token["Authorization"].split(" ")[1]}, k={VAPID_PUBLIC_KEY}',
+        'Content-Type': 'text/plain',
+        'TTL': '86400',
+    }
+    
+    resp = requests.post(endpoint, data=message.encode(), headers=headers, timeout=10)
+    return resp.status_code
+
 @app.route('/vapid-public-key', methods=['GET'])
 def get_vapid_key():
     return jsonify({'publicKey': VAPID_PUBLIC_KEY})
@@ -38,7 +65,6 @@ def get_vapid_key():
 def subscribe():
     global subscriptions
     sub = request.json
-    # Endpoint als eindeutiger Key -- keine Duplikate
     endpoint = sub.get('endpoint', '')
     subscriptions = [s for s in subscriptions if s.get('endpoint') != endpoint]
     subscriptions.append(sub)
@@ -73,17 +99,14 @@ def check():
 
     for sub in subscriptions:
         try:
-            webpush(
-                subscription_info=sub,
-                data=message,
-                vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims=VAPID_CLAIMS
-            )
-            print(f"Push sent: {message}")
-        except WebPushException as e:
-            print(f"Push failed: {e}")
-            if '410' in str(e) or '404' in str(e):
+            status = send_push(sub, message)
+            if status in (200, 201, 202):
+                print(f"Push sent OK ({status})")
+            elif status in (404, 410):
+                print(f"Push expired ({status}), removing")
                 dead.append(sub)
+            else:
+                print(f"Push status: {status}")
         except Exception as e:
             print(f"Push error: {e}")
 
