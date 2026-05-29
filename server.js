@@ -6,9 +6,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const BOT_TOKEN     = process.env.TELEGRAM_BOT_TOKEN || '';
-const COOLDOWN_MS   = 5 * 60 * 1000; // 5 Minuten pro Callsign pro Chat-ID
-const notifiedCache = {}; // { chatId_callsign: timestamp }
+const BOT_TOKEN   = process.env.TELEGRAM_BOT_TOKEN || '';
+const COOLDOWN_MS = 5 * 60 * 1000; // 5 Minuten pro Callsign
+
+// Gespeicherter Zustand pro Chat-ID
+// { chatId: { lat, lon, radius, favorites, lastSeen } }
+const userState = {};
+
+// Cooldown-Cache { chatId_callsign: timestamp }
+const notifiedCache = {};
 
 function sendTelegramMessage(chatId, text) {
   return new Promise((resolve, reject) => {
@@ -29,7 +35,39 @@ function sendTelegramMessage(chatId, text) {
   });
 }
 
-// Endpunkt: Chat-ID ermitteln (nach /start im Bot)
+function fetchAircraft(lat, lon, radius) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`;
+    https.get(url, { headers: { 'User-Agent': 'adsb-radar/2.0' } }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch(e) { reject(e); }
+      });
+    }).on('error', reject);
+  });
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 3440.065; // Nautische Meilen
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// App schickt beim Öffnen Standort + Favoriten
+app.post('/update', (req, res) => {
+  const { chat_id, lat, lon, radius, favorites, alert_radius } = req.body;
+  if (!chat_id) return res.json({ ok: false, error: 'chat_id required' });
+  userState[chat_id] = { lat, lon, radius, favorites: favorites || [], alert_radius: alert_radius || 15, lastSeen: Date.now() };
+  console.log(`Updated [${chat_id}]: lat=${lat}, lon=${lon}, radius=${radius}, favorites=${favorites}, alert=${alert_radius}`);
+  res.json({ ok: true });
+});
+
+// Chat-ID ermitteln
 app.get('/get-chat-id', async (req, res) => {
   try {
     const r = await new Promise((resolve, reject) => {
@@ -49,35 +87,45 @@ app.get('/get-chat-id', async (req, res) => {
   }
 });
 
-// Endpunkt: Notification senden
-app.post('/notify', async (req, res) => {
-  const { chat_id, callsigns = [] } = req.body;
-  if (!chat_id || !callsigns.length) return res.json({ ok: false });
-
-  const now        = Date.now();
-  const newMatches = callsigns.filter(cs =>
-    now - (notifiedCache[`${chat_id}:${cs}`] || 0) > COOLDOWN_MS
-  );
-
-  console.log(`Notify [${chat_id}]: callsigns=${callsigns}, new=${newMatches}`);
-
-  if (!newMatches.length) return res.json({ ok: true, cooldown: true });
-
-  const text = '✈ ' + newMatches.sort().join(', ') + ' ist in deinem Radar!';
-  try {
-    await sendTelegramMessage(chat_id, text);
-    newMatches.forEach(cs => { notifiedCache[`${chat_id}:${cs}`] = now; });
-    console.log(`Telegram sent: ${text}`);
-    res.json({ ok: true, notified: newMatches });
-  } catch(e) {
-    console.error(`Telegram error: ${e.message}`);
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', bot: !!BOT_TOKEN });
+  res.json({ status: 'ok', users: Object.keys(userState).length, bot: !!BOT_TOKEN });
 });
+
+// Polling: alle 60s für jeden registrierten User
+async function pollAll() {
+  for (const [chatId, state] of Object.entries(userState)) {
+    if (!state.lat || !state.favorites.length) continue;
+    try {
+      const data = await fetchAircraft(state.lat, state.lon, state.radius);
+      const aircraft = data.ac || [];
+      const now = Date.now();
+
+      for (const ac of aircraft) {
+        const callsign = (ac.flight || '').trim();
+        if (!callsign || !state.favorites.includes(callsign)) continue;
+
+        // Distanz berechnen
+        if (ac.lat == null || ac.lon == null) continue;
+        const dist = haversine(state.lat, state.lon, ac.lat, ac.lon);
+        if (dist > state.alert_radius) continue;
+
+        // Cooldown prüfen
+        const key = `${chatId}:${callsign}`;
+        if (now - (notifiedCache[key] || 0) < COOLDOWN_MS) continue;
+
+        // Telegram senden
+        const text = `✈ ${callsign} ist in deinem Radar! (${dist.toFixed(1)} nm)`;
+        await sendTelegramMessage(chatId, text);
+        notifiedCache[key] = now;
+        console.log(`Telegram sent to ${chatId}: ${text}`);
+      }
+    } catch(e) {
+      console.error(`Poll error for ${chatId}: ${e.message}`);
+    }
+  }
+}
+
+setInterval(pollAll, 60 * 1000);
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`Server running on port ${port}`));
