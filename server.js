@@ -11,7 +11,7 @@ const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY  || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_EMAIL       = process.env.VAPID_EMAIL       || 'admin@example.com';
 const SUBS_FILE         = '/tmp/subscriptions.json';
-const COOLDOWN_MS       = 5 * 60 * 1000; // 5 Minuten pro Callsign pro Gerät
+const COOLDOWN_MS       = 5 * 60 * 1000;
 
 webpush.setVapidDetails(
   `mailto:${VAPID_EMAIL}`,
@@ -19,15 +19,12 @@ webpush.setVapidDetails(
   VAPID_PRIVATE_KEY
 );
 
-// { endpoint: subscription }
 let subscriptions = {};
-// { endpoint_callsign: timestamp }
 let notifiedCache = {};
 
 function loadSubscriptions() {
   try {
-    const data = fs.readFileSync(SUBS_FILE, 'utf8');
-    subscriptions = JSON.parse(data);
+    subscriptions = JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8'));
     console.log(`Loaded ${Object.keys(subscriptions).length} subscriptions`);
   } catch { subscriptions = {}; }
 }
@@ -60,31 +57,22 @@ app.post('/unsubscribe', (req, res) => {
 
 app.post('/check', async (req, res) => {
   const { favorites = [], active = [], endpoint } = req.body;
-
-  // Nur das anfragende Gerät benachrichtigen
   const sub = endpoint && subscriptions[endpoint];
-  if (!sub || !favorites.length) {
-    return res.json({ matches: [] });
-  }
+  if (!sub || !favorites.length) return res.json({ matches: [] });
 
-  const activeSet = new Set(active);
-  const matches   = favorites.filter(cs => activeSet.has(cs));
-
-  if (!matches.length) {
-    return res.json({ matches });
-  }
+  // active enthält bereits nur Alert-Zone Callsigns (gefiltert im Client)
+  const activeSet  = new Set(active);
+  const matches    = favorites.filter(cs => activeSet.has(cs));
+  if (!matches.length) return res.json({ matches });
 
   const now        = Date.now();
-  const newMatches = matches.filter(cs => {
-    const key = `${endpoint}:${cs}`;
-    return now - (notifiedCache[key] || 0) > COOLDOWN_MS;
-  });
+  const newMatches = matches.filter(cs =>
+    now - (notifiedCache[`${endpoint}:${cs}`] || 0) > COOLDOWN_MS
+  );
 
   console.log(`Check [${endpoint.slice(-8)}]: matches=${matches}, new=${newMatches}`);
 
-  if (!newMatches.length) {
-    return res.json({ matches, cooldown: true });
-  }
+  if (!newMatches.length) return res.json({ matches, cooldown: true });
 
   const body    = '✈ ' + newMatches.sort().join(', ') + ' in deinem Radar!';
   const payload = JSON.stringify({ title: 'ADSB Radar', body });
@@ -92,9 +80,7 @@ app.post('/check', async (req, res) => {
   try {
     await webpush.sendNotification(sub, payload);
     console.log(`Push sent OK: ${body}`);
-    newMatches.forEach(cs => {
-      notifiedCache[`${endpoint}:${cs}`] = now;
-    });
+    newMatches.forEach(cs => { notifiedCache[`${endpoint}:${cs}`] = now; });
   } catch(e) {
     console.log(`Push failed (${e.statusCode}): ${e.body}`);
     if (e.statusCode === 404 || e.statusCode === 410) {
