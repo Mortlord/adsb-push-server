@@ -1,6 +1,7 @@
 const express  = require('express');
 const cors     = require('cors');
 const https    = require('https');
+const fs       = require('fs');
 
 const app = express();
 app.use(cors());
@@ -9,9 +10,20 @@ app.use(express.json());
 const BOT_TOKEN   = process.env.TELEGRAM_BOT_TOKEN || '';
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 Minuten pro Callsign
 
+const STATE_FILE = '/tmp/userstate.json';
+
+function loadUserState() {
+  try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); }
+  catch { return {}; }
+}
+
+function saveUserState() {
+  try { fs.writeFileSync(STATE_FILE, JSON.stringify(userState)); }
+  catch(e) { console.error('Save error:', e.message); }
+}
+
 // Gespeicherter Zustand pro Chat-ID
-// { chatId: { lat, lon, radius, favorites, lastSeen } }
-const userState = {};
+const userState = loadUserState();
 
 // Cooldown-Cache { chatId_callsign: timestamp }
 const notifiedCache = {};
@@ -63,6 +75,7 @@ app.post('/update', (req, res) => {
   const { chat_id, lat, lon, radius, favorites, alert_radius } = req.body;
   if (!chat_id) return res.json({ ok: false, error: 'chat_id required' });
   userState[chat_id] = { lat, lon, radius, favorites: favorites || [], alert_radius: alert_radius || 15, lastSeen: Date.now() };
+  saveUserState();
   console.log(`Updated [${chat_id}]: lat=${lat}, lon=${lon}, radius=${radius}, favorites=${favorites}, alert=${alert_radius}`);
   res.json({ ok: true });
 });
