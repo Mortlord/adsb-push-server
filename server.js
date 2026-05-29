@@ -1,99 +1,82 @@
-const express = require('express');
-const cors    = require('cors');
-const webpush = require('web-push');
-const fs      = require('fs');
+const express  = require('express');
+const cors     = require('cors');
+const https    = require('https');
 
-const app  = express();
+const app = express();
 app.use(cors());
 app.use(express.json());
 
-const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY  || '';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_EMAIL       = process.env.VAPID_EMAIL       || 'admin@example.com';
-const SUBS_FILE         = '/tmp/subscriptions.json';
-const COOLDOWN_MS       = 5 * 60 * 1000;
+const BOT_TOKEN     = process.env.TELEGRAM_BOT_TOKEN || '';
+const COOLDOWN_MS   = 5 * 60 * 1000; // 5 Minuten pro Callsign pro Chat-ID
+const notifiedCache = {}; // { chatId_callsign: timestamp }
 
-webpush.setVapidDetails(
-  `mailto:${VAPID_EMAIL}`,
-  VAPID_PUBLIC_KEY,
-  VAPID_PRIVATE_KEY
-);
+function sendTelegramMessage(chatId, text) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ chat_id: chatId, text });
+    const req  = https.request({
+      hostname: 'api.telegram.org',
+      path:     `/bot${BOT_TOKEN}/sendMessage`,
+      method:   'POST',
+      headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(JSON.parse(data)));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
 
-let subscriptions = {};
-let notifiedCache = {};
-
-function loadSubscriptions() {
+// Endpunkt: Chat-ID ermitteln (nach /start im Bot)
+app.get('/get-chat-id', async (req, res) => {
   try {
-    subscriptions = JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8'));
-    console.log(`Loaded ${Object.keys(subscriptions).length} subscriptions`);
-  } catch { subscriptions = {}; }
-}
-
-function saveSubscriptions() {
-  try { fs.writeFileSync(SUBS_FILE, JSON.stringify(subscriptions)); }
-  catch(e) { console.error('Save error:', e); }
-}
-
-loadSubscriptions();
-
-app.get('/vapid-public-key', (req, res) => {
-  res.json({ publicKey: VAPID_PUBLIC_KEY });
+    const r = await new Promise((resolve, reject) => {
+      https.get(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`, resp => {
+        let data = '';
+        resp.on('data', c => data += c);
+        resp.on('end', () => resolve(JSON.parse(data)));
+      }).on('error', reject);
+    });
+    const updates = r.result || [];
+    if (!updates.length) return res.json({ chat_id: null, hint: 'Sende /start an den Bot und versuche es erneut' });
+    const latest  = updates[updates.length - 1];
+    const chat_id = latest.message?.chat?.id;
+    res.json({ chat_id });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.post('/subscribe', (req, res) => {
-  const sub = req.body;
-  subscriptions[sub.endpoint] = sub;
-  saveSubscriptions();
-  console.log(`Subscriptions: ${Object.keys(subscriptions).length}`);
-  res.json({ ok: true });
-});
-
-app.post('/unsubscribe', (req, res) => {
-  const { endpoint } = req.body;
-  delete subscriptions[endpoint];
-  saveSubscriptions();
-  res.json({ ok: true });
-});
-
-app.post('/check', async (req, res) => {
-  const { favorites = [], active = [], endpoint } = req.body;
-  const sub = endpoint && subscriptions[endpoint];
-  if (!sub || !favorites.length) return res.json({ matches: [] });
-
-  // active enthält bereits nur Alert-Zone Callsigns (gefiltert im Client)
-  const activeSet  = new Set(active);
-  const matches    = favorites.filter(cs => activeSet.has(cs));
-  if (!matches.length) return res.json({ matches });
+// Endpunkt: Notification senden
+app.post('/notify', async (req, res) => {
+  const { chat_id, callsigns = [] } = req.body;
+  if (!chat_id || !callsigns.length) return res.json({ ok: false });
 
   const now        = Date.now();
-  const newMatches = matches.filter(cs =>
-    now - (notifiedCache[`${endpoint}:${cs}`] || 0) > COOLDOWN_MS
+  const newMatches = callsigns.filter(cs =>
+    now - (notifiedCache[`${chat_id}:${cs}`] || 0) > COOLDOWN_MS
   );
 
-  console.log(`Check [${endpoint.slice(-8)}]: matches=${matches}, new=${newMatches}`);
+  console.log(`Notify [${chat_id}]: callsigns=${callsigns}, new=${newMatches}`);
 
-  if (!newMatches.length) return res.json({ matches, cooldown: true });
+  if (!newMatches.length) return res.json({ ok: true, cooldown: true });
 
-  const body    = '✈ ' + newMatches.sort().join(', ') + ' in deinem Radar!';
-  const payload = JSON.stringify({ title: 'ADSB Radar', body });
-
+  const text = '✈ ' + newMatches.sort().join(', ') + ' ist in deinem Radar!';
   try {
-    await webpush.sendNotification(sub, payload);
-    console.log(`Push sent OK: ${body}`);
-    newMatches.forEach(cs => { notifiedCache[`${endpoint}:${cs}`] = now; });
+    await sendTelegramMessage(chat_id, text);
+    newMatches.forEach(cs => { notifiedCache[`${chat_id}:${cs}`] = now; });
+    console.log(`Telegram sent: ${text}`);
+    res.json({ ok: true, notified: newMatches });
   } catch(e) {
-    console.log(`Push failed (${e.statusCode}): ${e.body}`);
-    if (e.statusCode === 404 || e.statusCode === 410) {
-      delete subscriptions[endpoint];
-      saveSubscriptions();
-    }
+    console.error(`Telegram error: ${e.message}`);
+    res.status(500).json({ ok: false, error: e.message });
   }
-
-  res.json({ matches, notified: newMatches });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', subscriptions: Object.keys(subscriptions).length });
+  res.json({ status: 'ok', bot: !!BOT_TOKEN });
 });
 
 const port = process.env.PORT || 3000;
