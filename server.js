@@ -106,9 +106,7 @@ app.get('/health', (req, res) => {
 
 // Polling: alle 60s für jeden registrierten User
 async function pollAll() {
-  // Nur zwischen 08:00 und 23:59 UTC+1 (Europe/Berlin)
-  const hour = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin', hour: 'numeric', hour12: false });
-  if (parseInt(hour) < 8) return;
+  // Polling läuft rund um die Uhr -- Tagesübersicht in poll.js um 07:55
   for (const [chatId, state] of Object.entries(userState)) {
     if (!state.lat || !state.favorites.length) continue;
     try {
