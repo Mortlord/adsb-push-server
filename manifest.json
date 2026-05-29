@@ -1,0 +1,21 @@
+{
+  "name": "ADSB Radar",
+  "short_name": "ADSB Radar",
+  "description": "Live ADS-B Flugzeug-Radar",
+  "start_url": "/adsb-radar/",
+  "display": "standalone",
+  "background_color": "#080c18",
+  "theme_color": "#080c18",
+  "icons": [
+    {
+      "src": "/adsb-radar/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/adsb-radar/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

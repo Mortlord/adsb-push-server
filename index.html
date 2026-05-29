@@ -1,0 +1,1646 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/adsb-radar/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ADSB Radar">
+<title>✈ ADSB Radar</title>
+<meta name="description" content="Live ADS-B aircraft radar – powered by adsb.lol">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a0e1a;
+  color: #e0e8ff;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Header ───────────────────────────────── */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #0d1224;
+  border-bottom: 1px solid #1e2d55;
+  flex-shrink: 0;
+  gap: 12px;
+}
+#header h1 { font-size: 1rem; color: #4af; letter-spacing: 2px; white-space: nowrap; }
+#status-bar { display: flex; gap: 14px; font-size: 0.7rem; color: #7a9ccc; flex-wrap: wrap; }
+#status-bar span { display: flex; align-items: center; gap: 4px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #555; flex-shrink: 0; }
+.dot.green  { background: #3f9; animation: pulse 2s infinite; }
+.dot.yellow { background: #fa3; }
+.dot.red    { background: #f44; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+#controls { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+#controls label { font-size: 0.7rem; color: #7a9ccc; white-space: nowrap; }
+#controls input[type=number] {
+  width: 55px; background: #111827; border: 1px solid #1e2d55;
+  color: #4af; padding: 2px 5px; border-radius: 4px;
+  font-family: monospace; font-size: 0.75rem;
+}
+#refresh-btn {
+  background: #1a2a4a; border: 1px solid #2a4a8a; color: #4af;
+  padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+}
+#refresh-btn:hover { background: #2a3a6a; }
+#refresh-btn:disabled { opacity:.5; cursor: not-allowed; }
+
+/* ── Main Layout ──────────────────────────── */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Radar ────────────────────────────────── */
+#radar-panel {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px;
+}
+#radar-canvas {
+  border-radius: 50%;
+  box-shadow: 0 0 30px rgba(0,100,255,.15), 0 0 60px rgba(0,50,150,.08);
+  touch-action: none;
+}
+
+/* ── Desktop Layout (> 600px) ─────────────── */
+@media (min-width: 601px) {
+  #radar-panel {
+    flex: 0 0 min(40vw, 560px);
+    height: 100%;
+  }
+}
+
+/* ── Favoriten ────────────────────────────── */
+#fav-panel {
+  border-bottom: 1px solid #1e2d55;
+  background: #0a0e1a;
+}
+#fav-toggle {
+  width: 100%; padding: 6px 12px;
+  background: none; border: none; border-bottom: 1px solid #1e2d55;
+  color: #4af; font-family: monospace; font-size: 0.65rem;
+  letter-spacing: .8px; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 6px;
+}
+#fav-toggle:hover { background: #0d1224; }
+#fav-body { display: none; padding: 8px 12px; }
+#fav-body.open { display: block; }
+#fav-input-row { display: flex; gap: 6px; margin-bottom: 8px; }
+#fav-input {
+  flex: 1; background: #111827; border: 1px solid #1e2d55;
+  color: #e0e8ff; padding: 5px 8px; border-radius: 4px;
+  font-family: monospace; font-size: 0.75rem; text-transform: uppercase;
+}
+#fav-input:focus { outline: none; border-color: #4af; }
+#fav-add-btn {
+  background: #0d2a1a; border: 1px solid #2a6a3a;
+  color: #3f9; border-radius: 4px; padding: 5px 10px;
+  cursor: pointer; font-family: monospace; font-size: 0.75rem;
+}
+#fav-add-btn:hover { background: #1a3a2a; }
+#push-btn {
+  background: #0d1224; border: 1px solid #1e2d55;
+  color: #456; border-radius: 4px; padding: 5px 8px;
+  cursor: pointer; font-family: monospace; font-size: 0.7rem;
+  white-space: nowrap;
+}
+#push-btn:hover { border-color: #4af; }
+#fav-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.fav-tag {
+  display: flex; align-items: center; gap: 4px;
+  background: #111827; border: 1px solid #1e2d55;
+  border-radius: 4px; padding: 3px 7px;
+  font-family: monospace; font-size: 0.7rem; color: #fa3;
+}
+.fav-tag.active { border-color: #fa3; background: #1a1500; }
+.fav-tag span { cursor: pointer; color: #456; font-size: 0.65rem; margin-left: 2px; }
+.fav-tag span:hover { color: #f66; }
+
+
+#list-panel {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden; border-left: 1px solid #1e2d55;
+}
+#list-header {
+  padding: 6px 12px;
+  background: #0d1224;
+  border-bottom: 1px solid #1e2d55;
+  font-size: 0.65rem;
+  color: #4af;
+  display: grid;
+  grid-template-columns: 1.2fr 1.8fr 1fr 1.3fr 1fr 0.9fr 0.9fr;
+  gap: 4px;
+  letter-spacing: .8px;
+}
+#list-scroll { flex:1; overflow-y:auto; overflow-x:hidden; }
+#list-scroll::-webkit-scrollbar { width: 4px; }
+#list-scroll::-webkit-scrollbar-track { background: #0a0e1a; }
+#list-scroll::-webkit-scrollbar-thumb { background: #1e2d55; border-radius: 2px; }
+
+.ac-row {
+  padding: 5px 12px;
+  font-size: 0.7rem;
+  border-bottom: 1px solid #0f1830;
+  display: grid;
+  grid-template-columns: 1.2fr 1.8fr 1fr 1.3fr 1fr 0.9fr 0.9fr;
+  gap: 4px;
+  cursor: pointer;
+  transition: background .1s;
+  align-items: center;
+}
+.ac-row:hover { background: #111827; }
+.ac-row.selected { background: #162040; border-left: 3px solid #4af; padding-left: 9px; }
+.ac-row.alert-ac { border-left: 3px solid #f80 !important; padding-left: 9px; }
+.ac-row.new-flash { animation: rowflash 2s ease-out; }
+@keyframes rowflash { 0%{background:#1a3a1a} 100%{background:transparent} }
+
+.col-call { color: #4af; font-weight: bold; }
+.col-airline { color: #8af; font-size: 0.64rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-type { color: #aac; }
+.col-route { color: #fa3; font-size: 0.67rem; }
+.col-alt  { }
+.col-dist { color: #fa3; }
+.col-spd  { color: #8cf; }
+
+.alt-hi  { color: #f66; }
+.alt-mid { color: #ff9; }
+.alt-lo  { color: #6f6; }
+.alt-gnd { color: #fa3; }
+
+/* ── Detail Panel (FR24 style) ────────────── */
+#detail-panel {
+  position: fixed;
+  top: 50px; right: 0;
+  width: 320px;
+  max-height: calc(100vh - 60px);
+  background: #0d1224;
+  border: 1px solid #2a4a8a;
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  overflow-y: auto;
+  display: none;
+  z-index: 100;
+  font-size: 0.75rem;
+}
+#detail-panel.visible { display: block; }
+#detail-panel::-webkit-scrollbar { width: 3px; }
+#detail-panel::-webkit-scrollbar-thumb { background: #1e2d55; }
+
+.dp-header {
+  padding: 12px 14px 8px;
+  background: #111827;
+  border-bottom: 1px solid #1e2d55;
+  position: relative;
+}
+.dp-close {
+  position: absolute; top: 10px; right: 12px;
+  cursor: pointer; color: #4af; font-size: 1rem; line-height: 1;
+}
+.dp-callsign { font-size: 1.3rem; font-weight: bold; color: #fff; letter-spacing: 1px; }
+.dp-badges { display: flex; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+.badge {
+  padding: 2px 7px; border-radius: 4px; font-size: 0.68rem;
+  font-weight: bold; letter-spacing: .5px;
+}
+.badge-icao  { background: #1a3a5a; color: #4af; border: 1px solid #2a5a8a; }
+.badge-type  { background: #2a3a1a; color: #6f6; border: 1px solid #4a6a2a; }
+.badge-alert { background: #3a1a00; color: #f80; border: 1px solid #6a3a00; }
+.dp-airline  { color: #8af; font-size: 0.8rem; margin-top: 2px; }
+
+.dp-route {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #1e2d55;
+  background: #0f1a30;
+}
+.dp-airport { text-align: center; flex: 1; }
+.dp-iata { font-size: 1.8rem; font-weight: bold; color: #fff; letter-spacing: 2px; }
+.dp-city { font-size: 0.65rem; color: #7a9ccc; margin-top: 2px; }
+.dp-arrow {
+  font-size: 1.2rem; color: #fa3; padding: 0 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.dp-arrow span { font-size: 0.6rem; color: #456; }
+
+.dp-section { padding: 10px 14px; border-bottom: 1px solid #0f1830; }
+.dp-section-title { font-size: 0.6rem; color: #456; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+.dp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dp-field label { font-size: 0.6rem; color: #456; display: block; text-transform: uppercase; letter-spacing: .5px; }
+.dp-field span { font-size: 0.78rem; color: #e0e8ff; }
+
+/* ── Toast ────────────────────────────────── */
+#toast-container {
+  position: fixed; top: 55px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 6px; z-index: 200;
+  pointer-events: none;
+}
+.toast {
+  background: #1a2a0a; border: 1px solid #4a8a2a; border-left: 3px solid #6f6;
+  padding: 7px 14px; border-radius: 4px; font-size: 0.73rem;
+  white-space: nowrap;
+  animation: toastIn .3s ease, toastOut .4s ease 4.6s forwards;
+}
+.toast.alert { background: #2a1a0a; border-color: #8a4a0a; border-left-color: #f80; }
+@keyframes toastIn  { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:none} }
+@keyframes toastOut { to{opacity:0;transform:translateY(-10px)} }
+
+/* ── Footer ───────────────────────────────── */
+#footer {
+  padding: 4px 16px;
+  background: #0d1224;
+  border-top: 1px solid #1e2d55;
+  font-size: 0.62rem; color: #456;
+  display: flex; justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* ── Spinner ──────────────────────────────── */
+#spinner {
+  display: none; position: fixed; inset: 0;
+  background: rgba(10,14,26,.65);
+  align-items: center; justify-content: center;
+  z-index: 300; font-size: 1.4rem; color: #4af;
+}
+#spinner.visible { display: flex; }
+
+/* ── Location Modal ───────────────────────── */
+#loc-modal {
+  display: none; position: fixed; inset: 0;
+  background: rgba(5,8,18,.85);
+  align-items: center; justify-content: center;
+  z-index: 400;
+}
+#loc-modal.visible { display: flex; }
+#loc-box {
+  background: #0d1224;
+  border: 1px solid #2a4a8a;
+  border-radius: 10px;
+  padding: 28px 32px;
+  width: 380px;
+  box-shadow: 0 0 40px rgba(0,80,200,.2);
+}
+#loc-box h2 { color: #4af; font-size: 1rem; letter-spacing: 1px; margin-bottom: 6px; }
+#loc-box p  { color: #7a9ccc; font-size: 0.72rem; margin-bottom: 18px; line-height: 1.5; }
+
+
+
+
+/* ══════════════════════════════════════════════
+   MOBILE – max-width: 768px
+   ══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* Dynamische Viewport-Höhe (kein Browser-Toolbar-Overflow) */
+  body {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* ── Header: wrappbar, kompakter ────────── */
+  #header {
+    flex-wrap: wrap;
+    padding: 5px 10px;
+    gap: 5px;
+  }
+  #header h1 {
+    font-size: 0.82rem;
+    letter-spacing: 1px;
+  }
+  #status-bar {
+    font-size: 0.6rem;
+    gap: 8px;
+    flex: 1 1 100%;
+    order: 3;
+  }
+  #controls {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  #controls label {
+    font-size: 0.65rem;
+    white-space: nowrap;
+  }
+  #controls input[type=number] {
+    width: 44px;
+    padding: 3px 4px;
+    font-size: 0.72rem;
+  }
+  #refresh-btn {
+    padding: 4px 10px;
+    font-size: 0.72rem;
+  }
+
+  /* ── Hauptlayout: vertikal stapeln ──────── */
+  #main {
+    flex-direction: column;
+  }
+
+  /* ── Radar oben, kompakt ─────────────────── */
+  #radar-panel {
+    flex: 0 0 auto;
+    height: min(52vw, 260px);
+    padding: 6px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* ── Liste unten, scrollbar ──────────────── */
+  #list-panel {
+    flex: 1;
+    border-left: none;
+    border-top: 1px solid #1e2d55;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Auf Mobil: CALLSIGN, AIRLINE, ROUTE, ALT, DIST, SPD (kein AIRCRAFT) */
+  #list-header,
+  .ac-row {
+    grid-template-columns: 66px 56px 54px 46px 36px 34px;
+    font-size: 0.62rem;
+    gap: 3px;
+  }
+  #list-header {
+    padding: 5px 8px;
+  }
+  .ac-row {
+    padding: 7px 8px;
+    min-height: 34px;
+  }
+  /* Nur AIRCRAFT ausblenden, AIRLINE bleibt sichtbar */
+  .col-type { display: none !important; }
+
+  /* ── Detail-Panel: Bottom Sheet ──────────── */
+  #detail-panel {
+    top: auto;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-height: 62vh;
+    border-radius: 14px 14px 0 0;
+    border-right: 1px solid #2a4a8a;
+    border-left: 1px solid #2a4a8a;
+    border-bottom: none;
+  }
+  /* Anfass-Balken oben am Bottom Sheet */
+  #detail-panel::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: #2a4a8a;
+    border-radius: 2px;
+    margin: 8px auto 0;
+  }
+
+  /* ── Toast: unten statt oben ─────────────── */
+  #toast-container {
+    top: auto;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .toast { font-size: 0.68rem; padding: 6px 12px; white-space: normal; max-width: 90vw; }
+
+  /* ── Location-Modal: responsiv ───────────── */
+  #loc-box {
+    width: min(380px, 94vw);
+    padding: 20px 16px;
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+
+  /* ── Footer: kleiner ─────────────────────── */
+  #footer {
+    font-size: 0.55rem;
+    padding: 3px 10px;
+  }
+
+  /* ── Spinner ─────────────────────────────── */
+  #spinner { font-size: 1.1rem; }
+}
+
+/* Sehr schmale Phones (≤ 380px) */
+@media (max-width: 380px) {
+  #header h1 { font-size: 0.75rem; }
+  #controls input[type=number] { width: 38px; }
+  #list-header,
+  .ac-row {
+    grid-template-columns: 62px 52px 48px 40px 34px 30px;
+  }
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>✈ ADSB RADAR</h1>
+  <div id="status-bar">
+    <span><div class="dot" id="gps-dot"></div><span id="gps-txt">GPS: –</span></span>
+    <span><div class="dot" id="api-dot"></div><span id="api-txt">API: –</span></span>
+    <span id="count-txt">0 Flugzeuge</span>
+    <span id="last-update">–</span>
+  </div>
+  <div id="controls">
+    <label>Radius: <input type="number" id="radius-input" value="25" min="10" max="500"> nm</label>
+    <label>Alert: <input type="number" id="alert-input" value="10" min="1" max="100"> nm</label>
+    <button id="refresh-btn" onclick="fetchData()">⟳ Refresh</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="radar-panel"><canvas id="radar-canvas"></canvas></div>
+  <div id="list-panel">
+    <div id="fav-panel">
+      <button id="fav-toggle" onclick="toggleFavPanel()">⭐ FAVORITEN <span id="fav-count"></span></button>
+      <div id="fav-body">
+        <div id="fav-input-row">
+          <input type="text" id="fav-input" placeholder="Callsign z.B. LH400" maxlength="8">
+          <button id="fav-add-btn" onclick="addFav()">＋</button>
+          <button id="push-btn" onclick="togglePush()" title="Push Notifications">🔕 AUS</button>
+        </div>
+        <div id="fav-list"></div>
+      </div>
+    </div>
+    <div id="list-header">
+      <span>CALLSIGN</span>
+      <span class="col-airline">AIRLINE</span>
+      <span class="col-type">AIRCRAFT</span>
+      <span>ROUTE</span>
+      <span>ALT</span>
+      <span>DIST nm</span>
+      <span>SPD kt</span>
+    </div>
+    <div id="list-scroll"></div>
+  </div>
+</div>
+
+<div id="detail-panel">
+  <div class="dp-header">
+    <span class="dp-close" onclick="closeDetail()">✕</span>
+    <div class="dp-callsign" id="dp-callsign">–</div>
+    <div class="dp-badges" id="dp-badges"></div>
+    <div class="dp-airline" id="dp-airline">–</div>
+  </div>
+  <div class="dp-route" id="dp-route-section" style="display:none">
+    <div class="dp-airport">
+      <div class="dp-iata" id="dp-orig-iata">–</div>
+      <div class="dp-city" id="dp-orig-city">–</div>
+    </div>
+    <div class="dp-arrow">✈<span id="dp-dist-label">–</span></div>
+    <div class="dp-airport">
+      <div class="dp-iata" id="dp-dest-iata">–</div>
+      <div class="dp-city" id="dp-dest-city">–</div>
+    </div>
+  </div>
+  <div class="dp-section">
+    <div class="dp-section-title">Flugzeug</div>
+    <div class="dp-grid">
+      <div class="dp-field"><label>Type</label><span id="dp-type">–</span></div>
+      <div class="dp-field"><label>Registration</label><span id="dp-reg">–</span></div>
+      <div class="dp-field"><label>ICAO Hex</label><span id="dp-hex">–</span></div>
+      <div class="dp-field"><label>Squawk</label><span id="dp-squawk">–</span></div>
+    </div>
+  </div>
+  <div class="dp-section">
+    <div class="dp-section-title">Flugdaten</div>
+    <div class="dp-grid">
+      <div class="dp-field"><label>Altitude</label><span id="dp-alt">–</span></div>
+      <div class="dp-field"><label>Speed</label><span id="dp-spd">–</span></div>
+      <div class="dp-field"><label>Heading</label><span id="dp-hdg">–</span></div>
+      <div class="dp-field"><label>Vert. Rate</label><span id="dp-vrate">–</span></div>
+      <div class="dp-field"><label>Entfernung</label><span id="dp-dist">–</span></div>
+      <div class="dp-field"><label>Signal</label><span id="dp-rssi">–</span></div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<div id="footer">
+  <span>Daten: airplanes.live · Routen: adsbdb.com · github.io/adsb-radar</span>
+  <span id="footer-pos">Pos: –</span>
+</div>
+<div id="spinner">⟳ Lade…</div>
+
+<!-- GPS Fehlermeldung -->
+<div id="loc-modal">
+  <div id="loc-box">
+    <h2>✈ STANDORT ERFORDERLICH</h2>
+    <p>GPS nicht verfügbar oder verweigert.<br>Bitte erlaube den Standortzugriff in deinen Browser-Einstellungen und lade die Seite neu.</p>
+    <button id="loc-gps-btn" onclick="tryGps()" style="width:100%;margin-bottom:14px;padding:8px;background:#0d2a1a;border:1px solid #2a6a3a;color:#3f9;border-radius:5px;cursor:pointer;font-family:monospace;font-size:0.8rem;">
+      📍 Nochmals versuchen
+    </button>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// POLYFILLS – Kompatibilität älterer mobiler Browser
+// ══════════════════════════════════════════════
+if (typeof AbortSignal.timeout !== 'function') {
+  AbortSignal.timeout = function(ms) {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(new DOMException('TimeoutError', 'TimeoutError')), ms);
+    return ctrl.signal;
+  };
+}
+
+// ══════════════════════════════════════════════
+// LOOKUP TABLES
+// ══════════════════════════════════════════════
+
+// ICAO airline callsign prefix → full name
+const AIRLINES = {
+  AAA:"Ansett Australia", AAF:"Aigle Azur", AAH:"Aloha Airlines", AAL:"American Airlines", AAN:"Amsterdam Airlines",
+  AAQ:"Copterline", AAR:"Asiana Airlines", AAS:"Askari Aviation", AAW:"Afriqiyah Airways", AAY:"Allegiant Air",
+  ABD:"Air Atlanta Icelandic", ABF:"Scanwings", ABI:"Aviabus", ABL:"Air Busan", ABQ:"Airblue",
+  ABR:"ASL Airlines Belgium (FedEx)", ABS:"Transwest Air", ABY:"Air Arabia", ACA:"Air Canada", ACI:"Air Caledonie International",
+  ACP:"Astral Aviation", ADE:"Ada Air", ADH:"Air One", ADO:"Hokkaido International Airlines", ADR:"Adria Airways",
+  AEA:"Air Europa", AEB:"Aero Benin", AEE:"Aegean Airlines", AEL:"Air Europe", AER:"Alaska Central Express",
+  AES:"ACES Colombia", AEU:"Astraeus", AEW:"Aerosvit Airlines", AEY:"Air Italy", AFG:"Ariana Afghan Airlines",
+  AFL:"Aeroflot Russian Airlines", AFR:"Air France", AGV:"Air Glaciers", AGX:"Aviogenex", AHO:"Air Hamburg (AHO)",
+  AHY:"Azerbaijan Airlines", AIA:"Avies", AIC:"Air India Limited", AIO:"United States Air Force", AIQ:"Thai AirAsia",
+  AIR:"Airlift International", AIZ:"Arkia Israel Airlines", AJM:"Air Jamaica", AJX:"Air Japan", AKA:"Air Korea Co. Ltd.",
+  AKL:"Air Kiribati", ALK:"SriLankan Airlines", ALO:"Allegheny Commuter Airlines", AMC:"Air Malta", AML:"Air Malawi",
+  AMT:"ATA Airlines", AMU:"Air Macau", AMV:"AMC Airlines", AMX:"AeroMéxico", ANA:"All Nippon Airways",
+  ANE:"Air Nostrum", ANG:"Air Niugini", ANK:"Air Nippon", ANO:"Airnorth", ANT:"Air North Charter - Canada",
+  ANU:"Andalus Lineas Aereas", ANZ:"Air New Zealand", APW:"Arrow Air", ARD:"Aerocondor", ARE:"Aires",
+  ARF:"Aero Flight", ARG:"Aerolineas Argentinas", ARU:"Aruba Airlines", ASA:"Alaska Airlines", ASD:"Air Sinai",
+  ASH:"Mesa Airlines", ASL:"Air Serbia", ASQ:"Atlantic Southeast Airlines", ASZ:"Astrakhan Airlines", ATC:"Air Tanzania",
+  ATM:"Airlines Of Tasmania", AUA:"Austrian Airlines", AUB:"Augsburg Airways", AUH:"Abu Dhabi Amiri Flight", AUI:"Ukraine International Airlines",
+  AUL:"Aeroflot-Nord", AUR:"Aurigny Air Services", AUT:"Austral Lineas Aereas", AVA:"Avianca - Aerovias Nacionales de Colombia", AVN:"Air Vanuatu",
+  AWA:"Asia Wings", AWE:"America West Airlines", AWI:"Air Wisconsin", AWM:"Asian Wings Airways", AWQ:"Indonesia AirAsia",
+  AWU:"Aeroline GmbH", AWW:"Air Wales", AXB:"Air India Express", AXC:"Indochina Airlines", AXE:"Air Explore",
+  AXL:"Air Exel", AXM:"AirAsia", AXZ:"Aereonautica militare", AYZ:"Atlant-Soyuz Airlines", AZA:"Alitalia",
+  AZN:"Amaszonas", AZU:"Azul", AZW:"Air Zimbabwe", BAG:"dba", BAW:"British Airways",
+  BBC:"Biman Bangladesh Airlines", BBG:"Bluebird Airways (BZ)", BBO:"Flybaboo", BBR:"Santa Barbara Airlines", BCC:"BusinessAir",
+  BCI:"Blue Islands", BCN:"Ocean Air", BCS:"Brussels Airlines", BCY:"CityJet", BEE:"Flybe",
+  BER:"Air Berlin", BEU:"Bateleur Air", BGD:"Air Bangladesh", BGY:"Bingo Airways", BHP:"Belair Airlines",
+  BHS:"Bahamasair", BIE:"Air Mediterranee", BIH:"British International Helicopters", BKF:"BF-Lento OY", BKP:"Bangkok Airways",
+  BLF:"Blue1", BLL:"Baltic Airlines", BLS:"Bearskin Lake Air Service", BLV:"Bellview Airlines", BLX:"TUIfly Nordic",
+  BMA:"bmi", BMI:"bmibaby", BMJ:"Bemidji Airlines", BMM:"Atlas Blue", BMR:"British Midland Regional",
+  BOH:"Air Bohemia", BON:"Air Bosna", BOT:"Air Botswana", BOV:"Boliviana de Aviacion (OB)", BPA:"Blue Panorama Airlines",
+  BPS:"Budapest Aircraft Services/Manx2", BQB:"Buquebus Líneas Aéreas", BRG:"Bering Air", BRQ:"El-Buraq Air Transport", BRS:"Brazilian Air Force",
+  BRU:"Belavia Belarusian Airlines", BSA:"Black Stallion Airways", BSX:"Bassaka airlines", BTA:"ExpressJet", BTI:"Air Baltic",
+  BTM:"Air Batumi", BTQ:"Boutique Air (Priv)", BTV:"Metro Batavia", BUB:"Air Bourbon", BUR:"Air Bucharest",
+  BUU:"Baikotovitchestrian Airlines ", BVT:"Berjaya Air", BWA:"Caribbean Airlines", BWG:"Blue Wings", BZE:"BRAZIL AIR",
+  BZH:"Brit Air", CAI:"Corendon Airlines", CAL:"China Airlines", CAN:"Crest Aviation", CAP:"CanXplorer",
+  CAW:"Comair", CAY:"Cayman Airways", CBG:"GX Airlines", CCA:"Air China", CCB:"CARICOM AIRWAYS (BARBADOS) INC.",
+  CCC:"CCML Airlines", CCG:"Central Connect Airlines", CCM:"Corse-Mediterranee", CDG:"Shandong Airlines", CDN:"Canadian Airlines",
+  CDP:"Aero Condor Peru", CEB:"Cebu Pacific", CEL:"CEIBA Intercontinental", CEO:"Comfort Express Virtual Charters", CES:"China Eastern Airlines",
+  CEY:"Air Century", CFE:"BA CityFlyer", CFG:"Condor Flugdienst", CGK:"Click Airways", CGP:"Cargo Plus Aviation",
+  CHB:"West Air China", CHH:"Hainan Airlines", CHP:"Consorcio Aviaxsa", CHQ:"Chautauqua Airlines", CHW:"Charter Air",
+  CHX:"Luftrettung", CIF:"CB Airways UK ( Interliging Flights )", CIM:"Cimber Air", CIX:"City Connexion Airlines", CJC:"Colgan Air",
+  CLH:"Lufthansa CityLine", CLI:"Calima Aviacion", CLJ:"Cello Aviation", CLW:"Centralwings", CMI:"Continental Micronesia",
+  CMP:"Copa Airlines", CNF:"Canaryfly", CNO:"SAS Braathens", COA:"Continental Airlines", COE:"Comtel Air",
+  COM:"Comair", CPA:"Cathay Pacific", CPN:"Caspian Airlines", CPZ:"Compass Airlines", CQH:"Spring Airlines",
+  CQN:"Chongqing Airlines", CRK:"Hong Kong Airlines", CRL:"Corsairfly", CRO:"Crown Airways", CSA:"Czech Airlines",
+  CSC:"Sichuan Airlines", CSH:"Shanghai Airlines", CSN:"China Southern Airlines", CSX:"Choice Airways", CSZ:"Shenzhen Airlines",
+  CTN:"Croatia Airlines", CUA:"China United Airlines", CUB:"Cubana de Aviación", CUD:"Air Cudlua", CVA:"Air Chathams",
+  CWK:"Comores Airlines", CWM:"Air Marshall Islands", CXA:"Xiamen Airlines", CYD:"Access Air", CYH:"Yunnan Airlines",
+  CYP:"Cyprus Airways", CZV:"Via Conectia Airlines", DAH:"Air Algerie", DAK:"First Flying", DAL:"Delta Air Lines",
+  DAO:"Daallo Airlines", DAT:"Brussels Airlines", DBK:"Dubrovnik Air", DCD:"Air 26", DEA:"Delta Aerotaxi",
+  DHI:"Adam Air", DJB:"Djibouti Airlines", DKH:"Juneyao Airlines", DLA:"Air Dolomiti", DLH:"Lufthansa",
+  DME:"Royal Flight", DMO:"Domodedovo Airlines", DNL:"Dutch Antilles Express", DNM:"Denim Air", DNV:"Aeroflot-Don",
+  DOA:"Dominicana de Aviaci", DOB:"Dobrolet", DRD:"Air Madrid", DRK:"Druk Air", DRU:"Alrosa Mirny Air Enterprise",
+  DSM:"LAN Argentina", DSV:"Direct Aero Services", DSY:"Dennis Sky", DTA:"TAAG Angola Airlines", DTR:"DAT Danish Air Transport",
+  DWA:"Dense Airways", DWT:"Darwin Airline", DYA:"Dynamic Airways", EAA:"Eastok Avia", EAL:"European Air Express",
+  EAV:"Eastern Atlantic Virtual Airlines", ECA:"Eurocypria Airlines", ECU:"Ecuavia", EDW:"Edelweiss Air", EEA:"Empresa Ecuatoriana De Aviacion",
+  EEU:"Eurofly Service", EFA:"Far Eastern Air Transport", EFY:"EasyFly", EGF:"American Eagle Airlines", EGH:"BBN-Airways",
+  EGS:"Eagles Airlines", EHN:"East Horizon", EIA:"Evergreen International Airlines", EIN:"Aer Lingus", EJA:"NetJets",
+  ELA:"Eastland Air", ELC:"Small Planet Airlines", ELK:"ELK Airways", ELL:"Estonian Air", ELO:"Eurolot",
+  ELY:"El Al Israel Airlines", ENJ:"Enerjet", ENY:"Envoy Air", ENZ:"Jota Aviation", ERO:"Sun D'Or",
+  ERR:"Era Alaska", ERT:"Eritrean Airlines", ESK:"SkyEurope", ESR:"Eastar Jet", ETD:"Etihad Airways",
+  ETH:"Ethiopian Airlines", EUD:"Air Italy Egypt", EUV:"EuropeSky", EVA:"EVA Air", EVC:"Comfort Express Virtual Charters Albany",
+  EWG:"Eurowings", EXS:"Jet2.com", EZA:"Eznis Airways", EZE:"Eastern Airways", EZY:"easyJet",
+  FAB:"First Air", FBL:"Fly Brasil", FCA:"First Choice Airways", FCB:"COBALT", FCM:"Flybe Finland Oy",
+  FDB:"Fly Dubai", FDD:"Feeder Airlines", FEG:"FlyEgypt", FFM:"Firefly", FFT:"Frontier Airlines",
+  FFV:"Fly540", FHE:"Hello", FHI:"FlyHigh Airlines Ireland (FH)", FIF:"Air Finland", FIN:"Finnair",
+  FIX:"Airfix Aviation", FJI:"Air Pacific", FJM:"Fly Jamaica Airways", FKA:"Flying kangaroo Airline", FLB:"German Air Force - FLB",
+  FLG:"Pinnacle Airlines", FLI:"Atlantic Airways", FLT:"Flightline", FLZ:"Air Florida", FNA:"Norlandair",
+  FOS:"Formosa Airlines", FOX:"FOX Linhas Aereas", FPO:"ASL Airlines France", FPT:"FlyPortugal", FRE:"Freedom Air",
+  FRF:"Fleet Air International", FRL:"Freedom Airlines", FTA:"Frontier Flying Service", FVM:"Flugfelag Vestmannaeyja", FWI:"Air Caraïbes",
+  FWL:"Florida West International Airways", FXI:"Air Iceland", FXX:"Felix Airways", FYH:"Flyhy Cargo Airlines", FYJ:"FLYJET",
+  FZA:"Fuzhou Airlines", FZW:"Fly Africa Zimbabwe", GAI:"Moskovia Airlines", GAO:"Golden Air", GAP:"Air Philippines",
+  GBA:"Gulf Air Bahrain", GBK:"Gabon Airlines", GBL:"GB Airways", GCA:"Grand Cru Airlines", GCR:"Tianjin Airlines",
+  GDC:"Grand China Air", GDR:"Gadair European Airlines", GEC:"Lufthansa Cargo", GER:"German International Air Lines", GFA:"Gulf Air",
+  GFG:"Georgian National Airlines", GFT:"Gulfstream International Airlines", GFY:"Greenfly", GHB:"Ghana International Airlines", GIA:"Garuda Indonesia",
+  GIE:"Elysian Airlines", GIP:"Air Guinee Express", GJS:"GoJet Airlines", GLA:"Great Lakes Airlines", GLG:"Aerolineas Galapagos (Aerogal)",
+  GLO:"Gol Transportes Aéreos", GLP:"Globus", GMI:"Germania", GMR:"Golden Myanmar Airlines", GNN:"Georgian International Airlines",
+  GOW:"Go Air", GRL:"Air Greenland", GSM:"Flyglobespan", GTA:"City Airways", GTI:"Atlas Air",
+  GUY:"Air Guyane", GWI:"Germanwings", GWY:"USA3000 Airlines", GXG:"GermanXL", GZP:"Gazpromavia",
+  HAG:"Hageland Aviation Services", HAL:"Hawaiian Airlines", HAM:"Haiti Ambassador Airlines", HAY:"Hamburg Airways", HBH:"Hebei Airlines",
+  HBR:"Hebradran Air Services", HCC:"Holidays Czech Airlines", HCW:"Star1 Airlines", HDA:"Dragonair", HEJ:"Hellas Jet",
+  HER:"Hex'Air", HFR:"Heli France", HHI:"Hamburg International", HKE:"Hong Kong Express Airways", HLF:"Hapagfly",
+  HLX:"TUIfly", HMR:"North American Charters", HNX:"Hankook Airline", HPY:"Happy Air", HRM:"Hermes Airlines",
+  HSK:"Sky Europe Airlines", HTH:"Helitt Líneas Aéreas", HVK:"Turkish Air Force", HVN:"Vietnam Airlines", HWY:"Highland Airways",
+  HYM:"Himalayan Airlines", HZA:"Horizon Airlines", IAA:"Indonesian Airlines", IAC:"Indian Airlines", IAM:"Aeronautica Militare",
+  IAW:"Iraqi Airways", IBB:"Binter Canarias", IBE:"Iberia Airlines", IBK:"Norwegian Air International (D8)", IBS:"Iberia Express",
+  IBU:"Indigo", IBX:"Ibex Airlines", ICE:"Icelandair", ICL:"CAL Cargo Air Lines", IDS:"Indonesia Sky",
+  IDX:"Indonesa Air Aisa X", IGO:"IndiGo Airlines", IIA:"AIR INDOCHINE", IIR:"INAVIA Internacional", IKA:"Itek Air",
+  ILN:"Interair South Africa", IMP:"Hellenic Imperial Airways", INE:"International Europe", IPV:"Parmiss Airlines (IPV)", IRA:"Iran Air",
+  IRC:"Iran Aseman Airlines", IRK:"Kish Air", IRM:"Mahan Air", ISK:"Intersky", ISR:"Israir",
+  ISS:"Meridiana", ISV:"Islena De Inversiones", ISW:"Islas Airways", ISX:"Island Spirit", ITK:"Interlink Airlines",
+  ITX:"Imair Airlines", IWA:"Apache Air", IWD:"Iberworld", IXO:"OCEAN AIR CARGO", IYE:"Yemenia",
+  JAA:"Japan Asia Airways", JAB:"Air Bagan", JAF:"Jetairfly", JAI:"Jet Airways", JAL:"Japan Airlines Domestic",
+  JAS:"Japan Air System", JAZ:"JALways", JBA:"Helijet", JBU:"JetBlue Airways", JEF:"Jetflite",
+  JET:"Wind Jet", JEX:"JAL Express", JFU:"Jet4You", JGN:"Jagson Airlines", JJA:"Jeju Air",
+  JJP:"Jetstar Japan ", JKK:"Spanair", JNA:"Jin Air", JOR:"Blue Air", JOY:"Joy Air",
+  JPU:"Jupiter Airlines", JRB:"Jc royal.britannica", JSA:"Jetstar Asia Airways", JSR:"Jusur airways", JST:"Jetstar Airways",
+  JTA:"Japan Transocean Air", JTO:"Jettor Airlines", JZA:"Air Canada Jazz", JZR:"Jazeera Airways", KAC:"Kuwait Airways",
+  KAL:"Korean Air", KAP:"Cape Air", KBR:"KoralBlue Airlines", KBZ:"Air KBZ", KCU:"Skyline Ulasim Ticaret A.S.",
+  KDA:"Kendell Airlines", KEA:"Korea Express Air", KEN:"Kenmore Air", KFR:"Kingfisher Airlines", KGL:"Kogalymavia Air Company",
+  KGO:"Korongo Airlines", KHB:"Dalavia", KHK:"Kharkiv Airlines", KIL:"Kuban Airlines", KIN:"Kinloss Flying Training Unit",
+  KIS:"Contact Air", KJC:"Krasnojarsky Airlines", KKK:"Atlasjet", KLC:"KLM Cityhopper", KLM:"KLM Royal Dutch Airlines",
+  KLS:"Kal Star Aviation", KMF:"Kam Air", KND:"Kan Air", KNE:"Nas Air", KNI:"KD Avia",
+  KOL:"SOCHI AIR", KOQ:"Kostromskie avialinii", KOR:"Air Koryo", KQA:"Kenya Airways", KRP:"Carpatair",
+  KRY:"Russkie Krylya", KSM:"Kosmos", KSY:"KSY", KSZ:"Sunrise Airways", KUH:"Kush Air",
+  KYA:"Alghanim", KZK:"Air Kazakhstan", KZR:"Air Astana", KZU:"Kuzu Airlines Cargo", LAA:"Libyan Arab Airlines",
+  LAJ:"British Mediterranean Airways", LAM:"Linhas A", LAN:"LAN Airlines", LAO:"Lao Airlines", LAP:"TAM Mercosur",
+  LAV:"AlbaStar", LBC:"Albanian Airlines", LBL:"Line Blue", LBT:"Nouvel Air Tunisie", LDA:"Lauda Air",
+  LFA:"Air Alfa", LGL:"Luxair", LGW:"Luftfahrtgesellschaft Walter", LHN:"Express One International", LIA:"Leeward Islands Air Transport",
+  LIL:"FlyLal", LIX:"LionXpress", LJJ:"Luchsh Airlines ", LLC:"FlyLAL Charters", LLM:"Yamal Airlines",
+  LMM:"LCM AIRLINES", LMU:"AlMasria Universal Airlines", LNE:"Aerolane", LNI:"Lion Mentari Airlines", LOC:"Locair",
+  LOF:"Trans States Airlines", LOO:"LSM Airlines", LOT:"LOT Polish Airlines", LPE:"LAN Peru", LPR:"L",
+  LRC:"LACSA", LTC:"LatCharter", LTD:"Southern Airways Express", LTE:"LTE International Airways", LTO:"LTU Austria",
+  LTR:"Lufttransport", LTU:"Air Lituanica", LTY:"Liberty Airways", LUR:"Atlantis European Airways", LXP:"LAN Express",
+  LXR:"Air Luxor", LZB:"Bulgaria Air", MAA:"MasAir", MAC:"Malta Air Charter", MAH:"Malév",
+  MAI:"Mauritania Airlines International", MAK:"MAT Macedonian Airlines", MAL:"Morningstar Air Express", MAS:"Malaysia Airlines", MAU:"Air Mauritius",
+  MAV:"Maldivo Airlines", MCA:"MCA Airlines", MCK:"Macair Airlines", MDA:"Mandarin Airlines", MDG:"Air Madagascar",
+  MDL:"Mandala Airlines", MDO:"Domenican Airlines", MDP:"Medallion Air", MDV:"Moldavian Airlines", MDW:"Midway Airlines",
+  MEA:"Middle East Airlines", MEP:"Midwest Airlines", MES:"Mesaba Airlines", MGL:"MIAT Mongolian Airlines", MGX:"Montenegro Airlines",
+  MIC:"Mint Airways", MJG:"Michael Airlines", MJP:"Air Majoro", MJX:"Euroline", MKD:"MAT Airways",
+  MKG:"Air Mekong", MKU:"Island Air (WP)", MLA:"40-Mile Air", MLD:"Air Moldova", MMM:"Myanmar Airways International",
+  MNA:"Merpati Nusantara Airlines", MNB:"MNG Airlines", MNO:"Mango", MNP:"Spirit of Manila Airlines", MON:"Monarch Airlines",
+  MOV:"VIM Airlines", MPD:"Air Plus Comet", MPE:"Canadian North", MPH:"Martinair", MRS:"Marusya Airways",
+  MSE:"EgyptAir Express", MSI:"Motor Sich", MSR:"Egyptair", MTW:"Mauritania Airways", MVD:"Kavminvodyavia",
+  MWA:"Midwest Airlines (Egypt)", MWI:"Malaysia Wings", MXA:"Mexicana de Aviaci", MXD:"Malindo Air", MXI:"MexicanaLink",
+  MXL:"Maxair", MYA:"Myflug", MYD:"Maya Island Air", MYP:"Mann Yadanarpon Airlines", MYT:"MyTravel Airways",
+  NAK:"Arik Niger", NAS:"Nasair", NAX:"Norwegian Air Shuttle", NCF:"Norfolk County Flight College", NCR:"National Air Cargo",
+  NDC:"FlyNordic", NDN:"Transportes Aereos Cielos Andinos", NEA:"New England Airlines", NGB:"Nordic Global Airlines", NIA:"Nile Air",
+  NIG:"Aero Contractors", NJS:"National Jet Systems", NKF:"Barents AirLink", NKS:"Spirit Airlines", NLH:"Norwegian Long Haul AS",
+  NLY:"Niki", NMA:"Nesma Airlines", NMB:"Air Namibia", NMI:"Pacific Wings", NOK:"Nok Air",
+  NSE:"SATENA", NSZ:"Norwegian Air Sweden", NTJ:"NextJet", NTM:"North American Airlines", NTW:"Nationwide Airlines",
+  NVR:"Novair", NWA:"Northwest Airlines", NXB:"NEXT Brasil", NYT:"Yeti Airlines ", OAB:"Orbit Airlines Azerbaijan",
+  OAE:"Omni Air International", OAI:"Orbit International Airlines", OAL:"Olympic Airlines", OAN:"Orbit Atlantic Airways", OAR:"Orbit Regional Airlines",
+  OAW:"Helvetic Airways", OBS:"Orbest", OBT:"Orbit Airlines", OCA:"Aserca Airlines", OCN:"Discover Airlines",
+  OEA:"Orient Thai Airlines", OGN:"Origin Pacific Airways", OHK:"Oasis Hong Kong Airlines", OHY:"Onur Air", OLA:"Overland Airways",
+  OLS:"Sol Lineas Aereas", OLT:"Ostfriesische Lufttransport", OMA:"Oman Air", OME:"Homer Air", ONE:"Oceanair",
+  OOM:"Zoom Airlines", ORB:"Orenburg Airlines", ORC:"Orchid Airlines", ORG:"Orenburzhie", OTG:"One Two Go Airlines",
+  OTJ:"Fly Romania", OZJ:"Ozjet Airlines", OZW:"Skywest Airlines", PAL:"Philippine Airlines", PAO:"Polynesian Airlines",
+  PBA:"PB Air", PBD:"Pobeda", PCO:"Pacific Coastal Airline", PDC:"Potomac Air", PDT:"Piedmont Airlines (1948-1989)",
+  PEC:"Pacific East Asia Cargo Airlines", PEL:"Aeropelican Air Services", PEN:"Peninsula Airways", PFL:"Pacific Flier", PGA:"Portugalia",
+  PGT:"Pegasus Airlines", PIA:"Pakistan International Airlines", PIC:"Jetstar Pacific", PKV:"Псковавиа", PLI:"Aeroper",
+  PLR:"Northwestern Air", PMT:"PMTair", PMW:"Paramount Airways", PNR:"PAN Air", POE:"Porter Airlines",
+  POT:"Polet", PPL:"Air Pegasus", PPW:"Royal Phnom Penh Airways", PQW:"PanAm World Airways", PRF:"Precision Air",
+  PSA:"Pacific Island Aviation", PSB:"Syrian Pearl Airlines", PTB:"Passaredo Transportes Aereos", PTI:"Privatair", PUA:"PLUNA",
+  PYA:"Pouya Air", PYB:"All America BOPY", PZY:"Zapolyarie Airlines", QAX:"QatXpress", QER:"SOCHI AIR CHATER",
+  QFA:"Qantas", QFZ:"Fars Air Qeshm", QQQ:"ENTERair", QTR:"Qatar Airways", QXE:"Horizon Air",
+  RAB:"Rainbow Air (RAI)", RAC:"Royal Air Cambodge", RAE:"Régional", RAM:"Royal Air Maroc", RAR:"Air Rarotonga",
+  RAW:"Royal Airways", RAY:"Rainbow Air Canada", RBA:"Royal Brunei Airlines", RBG:"Air Arabia Egypt", RBY:"Vision Airlines (V2)",
+  REA:"Aer Arann", REP:"Regional Paraguaya", REU:"Air Austral", RFJ:"Royal Falcon", RGA:"REGA Swiss Air-Rescue",
+  RGG:"TransRussiaAirlines", RIT:"Asian Spirit", RJA:"Royal Jordanian", RJD:"Rotana Jet", RKA:"Air Afrique",
+  RLA:"Airlinair", RLN:"Aero Lanka", RLU:"Rusline", RLX:"Go2Sky", RMK:"Simrik Airlines",
+  RNA:"Royal Nepal Airlines", RNE:"Air Salone", RNV:"Armavia", RNX:"1Time Airline", RNY:"Rainbow Air US",
+  RON:"Nauru Air Corporation", ROT:"Tarom", RPA:"Republic Airlines", RPB:"AeroRep", RPH:"Republic Express Airlines",
+  RPO:"Rainbow Air Polynesia", RRJ:"AirRussia", RSD:"Russia State Transport", RSH:"Air Sahara", RSI:"Air Sunshine",
+  RSJ:"RusJet", RSP:"Jet Suite", RSR:"Aero-Service", RSU:"Aerosur", RSY:"I-Fly",
+  RTE:"Aeronorte", RUE:"Rainbow Air Euro", RUS:"Cirrus Airlines", RWD:"Rwandair Express", RWW:"Fly Europa",
+  RWZ:"Red Wings", RXA:"Regional Express", RXR:"REXAIR VIRTUEL", RYA:"Ryan Air Services", RYN:"Ryan International Airlines",
+  RYR:"Ryanair", RZO:"SATA International", SAA:"South African Airways", SAE:"SOCHI AIR EXPRESS", SAI:"Shaheen Air International",
+  SAL:"Spike Airlines", SAS:"Scandinavian Airlines System", SAT:"SATA Air Acores", SAY:"ScotAirways", SBD:"Snowbird Airlines",
+  SBI:"S7 Airlines", SBS:"Seaborne Airlines", SCE:"Scenic Airlines", SCO:"Scoot", SCW:"Malmö Aviation",
+  SCX:"Sun Country Airlines", SDI:"San Dima Air", SDM:"Rossiya-Russian Airlines", SDR:"City Airline", SEA:"Southeast Air",
+  SEH:"Sky Express", SEJ:"Spicejet", SEN:"Sevenair", SEU:"XL Airways France", SEY:"Air Seychelles",
+  SFJ:"Star Flyer", SGG:"Senegal Airlines", SGY:"Skagway Air Service", SHA:"Sharp Airlines", SHD:"Sahara Airlines",
+  SIA:"Singapore Airlines", SIB:"Sibaviatrans", SIH:"Skynet Airlines", SJM:"Svyaz Rossiya", SJO:"Spring Airlines Japan",
+  SJS:"Southjet", SJU:"Skyjet Airlines", SJY:"Sriwijaya Air", SKU:"Sky Airline", SKV:"Sky Regional Airlines",
+  SKW:"SkyWest", SKX:"Skyways Express", SKY:"Skymark Airlines", SLC:"Salsa d\\\\'Haiti", SLI:"Aerolitoral",
+  SLK:"SilkAir", SLM:"Surinam Airways", SMJ:"Avient Aviation", SMW:"Carpatair Flight Training", SMX:"Alitalia Express",
+  SMY:"Sama Airlines", SNB:"Sterling Airlines", SNC:"Air Cargo Carriers", SNJ:"Skynet Asia Airways", SOA:"Southern Air Charter",
+  SOL:"Solomon Airlines", SOU:"Southern Airways", SOV:"Saratov Aviation Division", SOZ:"Sat Airlines", SPI:"South Pacific Island Airways",
+  SPM:"Air Saint Pierre", SQC:"Singapore Airlines Cargo", SQH:"SeaPort Airlines", SRB:"Solar Air", SRH:"Siem Reap Airways",
+  SRN:"Sprint Air", SRQ:"South East Asian Airlines", SRY:"ViaAir", SSA:"All America US", SSV:"Skyservice Airlines",
+  STP:"STP Airways", STU:"Servicios de Transportes A", SUD:"Sudan Airways", SUW:"Interavia Airlines", SVA:"Saudi Arabian Airlines",
+  SVG:"SVG Air", SVR:"Ural Airlines", SWA:"Southwest Airlines", SWD:"Southern Winds Airlines", SWM:"Sky Angkor Airlines (ZA)",
+  SWR:"Swiss International Air Lines", SWU:"Swiss European Air Lines", SWV:"Swe Fly", SXR:"Sky Express", SXS:"SunExpress",
+  SYL:"Aircompany Yakutia", SYR:"Syrian Arab Airlines", SYX:"Skywalk Airlines", SZB:"Aerolineas heredas santa maria", SZZ:"SUR Lineas Aereas",
+  TAE:"TAME", TAH:"Air Moorea", TAK:"Tatarstan Airlines", TAM:"TAM Brazilian Airlines", TAN:"Zanair",
+  TAO:"Aeromar", TAP:"TAP Portugal", TAR:"Tunisair", TAT:"Grupo TACA", TBZ:"TrasBrasil",
+  TCF:"Shuttle America", TCG:"Thai Air Cargo", TCV:"TACV", TCW:"Thomas Cook Airlines", TCX:"Thomas Cook Airlines",
+  TDK:"Transavia Denmark", TEZ:"Tez Jet Airlines", TFL:"Arkefly", TFN:"Norwegian Aviation College", TGN:"Trigana Air Service",
+  TGW:"Tiger Airways Australia", TGZ:"Georgian Airways", THA:"Thai Airways International", THI:"TransHolding", THK:"Turk Hava Kurumu Hava Taksi Isletmesi",
+  THS:"TransBrasil Airlines", THT:"Air Tahiti Nui", THY:"Turkish Airlines", TIB:"TRIP Linhas A", TIL:"Tajikistan International Airlines",
+  TJA:"T.J. Air", TJT:"Twin Jet", TKS:"Tomsk-Avia", TLA:"Translift Airways", TMA:"Trans Mediterranean Airlines",
+  TNA:"TransAsia Airways", TNM:"Tiara Air", TNS:"Transilvania", TNU:"TransNusa Air", TOK:"Airlines PNG",
+  TOM:"TUI Airways", TOS:"Tropic Air", TPA:"TAMPA", TRA:"Transavia Holland", TRK:"Turkuaz Airlines",
+  TRS:"AirTran Airways", TSC:"Air Transat", TSO:"Transaero Airlines", TTZ:"Transair", TUA:"Turkmenistan Airlines",
+  TUI:"Tuninter", TUR:"ATUR", TUS:"ABSA - Aerolinhas Brasileiras", TVF:"Transavia France", TVJ:"Thai Vietjet Air",
+  TVS:"Travel Service", TWB:"Tway Airlines", TWD:"Turkish Wings Domestic", TWN:"Avialeasing Aviation Company", TXW:"Texas Wings",
+  TYR:"Tyrolean Airways", TYS:"TransHolding System", UAC:"United Air Charters", UAE:"Emirates", UAL:"United Airlines",
+  UAT:"Ukraine Atlantic", UAY:"University of Birmingham Air Squadron (RAF)", UBA:"Myanma Airways", UBD:"United Airways", UBG:"US-Bangla Airlines",
+  UCA:"CommutAir", UDC:"DonbassAero", UDN:"Dniproavia", UGX:"East African", UIA:"Uni Air",
+  UJX:"AtlasGlobal Ukraine", UKM:"UM Airlines", UMK:"Yuzhmashavia", UPA:"Air Foyle", URN:"Turan Air",
+  USA:"US Airways", USH:"US Helicopter", UTA:"UTair Aviation", UTY:"Alliance Airlines", UWW:"LSM International ",
+  UZB:"Uzbekistan Airways", VAS:"ATRAN Cargo Airlines", VAX:"V Air", VBW:"Air Burkina", VCV:"Conviasa",
+  VDA:"Volga-Dnepr Airlines", VEX:"Virgin Express", VFC:"Vasco Air", VGN:"Virgin Nigeria Airways", VIA:"VIA Líneas Aéreas",
+  VIM:"Air VIA", VIR:"Virgin Atlantic Airways", VIS:"Vision Air International", VJC:"VietJet Air", VKH:"Viking Hellas",
+  VKJ:"VickJet", VLE:"Volare Airlines", VLG:"Vueling Airlines", VLK:"Vladivostok Air", VLM:"VLM Airlines",
+  VLO:"Varig Log", VLU:"Valuair", VNP:"Virgin Pacific", VOE:"VOLOTEA Airways", VOI:"Volaris",
+  VOO:"Volotea", VOZ:"Virgin Australia", VQI:"Flyme (VP)", VRD:"Virgin America", VRN:"VRG Linhas Aereas",
+  VSP:"VASP", VSV:"Scat Air", VTA:"Air Tahiti", VTI:"Air Vistara", VUE:"AD Aviation",
+  VUN:"Air Ivoire", VVC:"VivaColombia", VVM:"Viva Macau", VVN:"88", VWA:"Virginwings",
+  WAJ:"AirAsia Japan", WAL:"Western Airlines", WAU:"Wizz Air Ukraine", WBA:"Finncomm Airlines", WEB:"WebJet Linhas A",
+  WEN:"WestJet Encore", WER:"AeroWorld ", WFX:"Westfalia Express VA", WIF:"Widerøe", WJA:"WestJet",
+  WLC:"Welcome Air", WOA:"World Airways", WON:"Wings Air", WOW:"Air Southwest", WRC:"Wind Rose Aviation",
+  WSS:"World Scale Airlines", WTA:"Africa West", WTJ:"Whitejets", WVL:"Wizz Air Hungary", WZZ:"Wizz Air",
+  XAN:"Southjet cargo", XAU:"XAIR USA", XAX:"AirAsia X", XBM:"CBM America", XEL:"Excel Charter",
+  XLA:"Excel Airways", XOJ:"XOJET", XPT:"XPTO", XSR:"Executive AirShare", YCC:"Ciel Canadien",
+  YCP:"Canadian National Airways", YEL:"Yellowtail", YEP:"YES Airways", YZZ:"LSM AIRLINES ", ZCS:"Southjet connect",
+  ZNA:"Zenith International Airline", ZTF:"Mongolian International Air Lines ", ZTT:"ZABAIKAL AIRLINES", ZXY:"Japan Regio", ZZZ:"Zabaykalskii Airlines",
+  КТК:"Катэкавиа",
+};
+
+// ICAO aircraft type code → full name
+const AIRCRAFT_TYPES = {
+  // Airbus
+  A124:'Antonov An-124', A148:'Antonov An-148', A158:'Antonov An-158',
+  A19N:'Airbus A319neo', A20N:'Airbus A320neo', A21N:'Airbus A321neo',
+  A225:'Antonov An-225', A300:'Airbus A300', A306:'Airbus A300-600',
+  A310:'Airbus A310', A318:'Airbus A318', A319:'Airbus A319',
+  A320:'Airbus A320', A321:'Airbus A321', A332:'Airbus A330-200',
+  A333:'Airbus A330-300', A338:'Airbus A330-800neo', A339:'Airbus A330-900neo',
+  A342:'Airbus A340-200', A343:'Airbus A340-300', A345:'Airbus A340-500',
+  A346:'Airbus A340-600', A359:'Airbus A350-900', A35K:'Airbus A350-1000',
+  A388:'Airbus A380-800',
+  // Boeing
+  B37M:'Boeing 737 MAX 7', B38M:'Boeing 737 MAX 8', B39M:'Boeing 737 MAX 9',
+  B3XM:'Boeing 737 MAX 10', B461:'BAe 146-100', B463:'BAe 146-300',
+  B703:'Boeing 707', B712:'Boeing 717', B721:'Boeing 727-100',
+  B722:'Boeing 727-200', B732:'Boeing 737-200', B733:'Boeing 737-300',
+  B734:'Boeing 737-400', B735:'Boeing 737-500', B736:'Boeing 737-600',
+  B737:'Boeing 737-700', B738:'Boeing 737-800', B739:'Boeing 737-900',
+  B741:'Boeing 747-100', B742:'Boeing 747-200', B743:'Boeing 747-300',
+  B744:'Boeing 747-400', B748:'Boeing 747-8', B74F:'Boeing 747-400F',
+  B74S:'Boeing 747SP', B752:'Boeing 757-200', B753:'Boeing 757-300',
+  B762:'Boeing 767-200', B763:'Boeing 767-300', B764:'Boeing 767-400',
+  B772:'Boeing 777-200', B77L:'Boeing 777-200LR', B773:'Boeing 777-300',
+  B77W:'Boeing 777-300ER', B778:'Boeing 777-8', B779:'Boeing 777-9',
+  B788:'Boeing 787-8', B789:'Boeing 787-9', B78X:'Boeing 787-10',
+  // Embraer
+  E135:'Embraer ERJ-135', E145:'Embraer ERJ-145', E170:'Embraer E170',
+  E175:'Embraer E175', E190:'Embraer E190', E195:'Embraer E195',
+  E290:'Embraer E2-190', E295:'Embraer E2-195',
+  // Bombardier/CRJ
+  CRJ1:'Bombardier CRJ-100', CRJ2:'Bombardier CRJ-200',
+  CRJ7:'Bombardier CRJ-700', CRJ9:'Bombardier CRJ-900', CRJX:'Bombardier CRJ-1000',
+  DH8A:'De Havilland Canada Q100', DH8B:'De Havilland Canada Q200',
+  DH8C:'De Havilland Canada Q300', DH8D:'De Havilland Canada Q400',
+  // ATR
+  AT43:'ATR 42-300', AT44:'ATR 42-400', AT45:'ATR 42-500',
+  AT46:'ATR 42-600', AT72:'ATR 72-200', AT73:'ATR 72-300',
+  AT75:'ATR 72-500', AT76:'ATR 72-600',
+  // Other
+  AN24:'Antonov An-24', AN26:'Antonov An-26', AN32:'Antonov An-32',
+  B463:'BAe 146-300', BE20:'Beechcraft King Air 200', BE35:'Beechcraft Bonanza',
+  C130:'Lockheed C-130 Hercules', C172:'Cessna 172', C208:'Cessna Caravan',
+  C25A:'Cessna Citation CJ2', C25B:'Cessna Citation CJ3', C310:'Cessna 310',
+  C337:'Cessna 337', C340:'Cessna 340', C404:'Cessna 404',
+  C421:'Cessna 421', C441:'Cessna Conquest', C500:'Cessna Citation I',
+  C525:'Cessna CitationJet', C550:'Cessna Citation II', C560:'Cessna Citation V',
+  C650:'Cessna Citation III', C680:'Cessna Citation Sovereign', C700:'Cessna Citation Longitude',
+  C750:'Cessna Citation X', CL60:'Challenger 600', CL30:'Bombardier Challenger 300',
+  CL35:'Bombardier Challenger 350', CL60:'Bombardier Challenger 600',
+  DC10:'McDonnell Douglas DC-10', DC85:'Douglas DC-8-50', DC86:'Douglas DC-8-60',
+  DC87:'Douglas DC-8-70', DC91:'Douglas DC-9-10', DC93:'Douglas DC-9-30',
+  DC95:'Douglas DC-9-50', EC35:'Eurocopter EC135', EC45:'Eurocopter EC145', F100:'Fokker 100',
+  F27:'Fokker 27', F28:'Fokker 28', F50:'Fokker 50',
+  F70:'Fokker 70', G200:'Gulfstream G200', G280:'Gulfstream G280',
+  G450:'Gulfstream G450', G500:'Gulfstream G500', G550:'Gulfstream G550',
+  G650:'Gulfstream G650', GL5T:'Bombardier Global 5000', GL7T:'Bombardier Global 7500',
+  H25B:'Hawker 800', IL18:'Ilyushin Il-18', IL76:'Ilyushin Il-76',
+  IL96:'Ilyushin Il-96', JS32:'BAe Jetstream 32', L101:'Lockheed L-1011',
+  LJ35:'Learjet 35', LJ45:'Learjet 45', LJ60:'Learjet 60',
+  LJ75:'Learjet 75', M11:'McDonnell Douglas MD-11', MD11:'McDonnell Douglas MD-11',
+  MD81:'McDonnell Douglas MD-81', MD82:'McDonnell Douglas MD-82',
+  MD83:'McDonnell Douglas MD-83', MD87:'McDonnell Douglas MD-87',
+  MD88:'McDonnell Douglas MD-88', MD90:'McDonnell Douglas MD-90',
+  P180:'Piaggio P.180 Avanti', P28A:'Piper PA-28', P46T:'Piper PA-46T',
+  PC12:'Pilatus PC-12', RJ1H:'Avro RJ100', RJ85:'Avro RJ85',
+  S601:'Aerospatiale SN.601', SF34:'SAAB 340', SH36:'Shorts 360',
+  SR22:'Cirrus SR22', SU95:'Sukhoi Superjet 100', T154:'Tupolev Tu-154',
+  T204:'Tupolev Tu-204', TBM8:'Daher TBM 850', TBM9:'Daher TBM 960',
+  Y12:'Harbin Y-12', YK42:'Yakovlev Yak-42',
+};
+
+// ICAO airport codes → City name (major airports)
+const AIRPORTS = {
+  LFSB:'Bâle/Mulhouse', // ICAO
+  // IATA-Aliase Euroairport
+  BSL:'Bâle/Mulhouse', EAP:'Bâle/Mulhouse', MLH:'Bâle/Mulhouse',
+  EDDF:'Frankfurt',   EDDM:'München',     EDDB:'Berlin',
+  EDDL:'Düsseldorf',  EDDS:'Stuttgart',   EDDH:'Hamburg',
+  EDDC:'Dresden',     EDDV:'Hannover',     EDDN:'Nürnberg',
+  EDDK:'Köln/Bonn',   EGLL:'London Heathrow', EGKK:'London Gatwick',
+  EGSS:'London Stansted', EHAM:'Amsterdam', LFPG:'Paris CDG',
+  LFPO:'Paris Orly',  LEMD:'Madrid',       LEBL:'Barcelona',
+  LIRF:'Rom',         LIMC:'Mailand',      LSZH:'Zürich',
+  LSGG:'Genf',        LOWW:'Wien',         LKPR:'Prag',
+  EPWA:'Warschau',    EKCH:'Kopenhagen',   ENGM:'Oslo',
+  ESGG:'Göteborg',    ESSA:'Stockholm',    EFHK:'Helsinki',
+  UUEE:'Moskau SVO',  UUDD:'Moskau DME',   LGAV:'Athen',
+  LTFM:'Istanbul',    LTBA:'Istanbul Atatürk', LEPA:'Palma de Mallorca',
+  LPPT:'Lissabon',    EBBR:'Brüssel',      ELLX:'Luxemburg',
+  EVRA:'Riga',        EYVI:'Vilnius',      EETN:'Tallinn',
+  BIKF:'Reykjavík',   GCFV:'Fuerteventura', GCLP:'Las Palmas',
+  GCTS:'Teneriffa',   GCXO:'Teneriffa Nord',
+  // Americas
+  KJFK:'New York JFK', KLAX:'Los Angeles', KORD:'Chicago OHare',
+  KATL:'Atlanta',     KDFW:'Dallas',       KSFO:'San Francisco',
+  KIAD:'Washington',  KBOS:'Boston',       KMIA:'Miami',
+  KDEN:'Denver',      KLGA:'New York LaG', KSEA:'Seattle',
+  KPHX:'Phoenix',     KMCO:'Orlando',      KDTW:'Detroit',
+  CYYZ:'Toronto',     CYVR:'Vancouver',    CYYC:'Calgary',
+  CYMX:'Montréal',    SBGR:'São Paulo GRU', SBGL:'Rio de Janeiro',
+  SCEL:'Santiago',    SAEZ:'Buenos Aires', MMMX:'Mexico City',
+  MROC:'San José',    MPTO:'Panama City',
+  // Asia
+  VHHH:'Hong Kong',   RJTT:'Tokyo Haneda', RJAA:'Tokyo Narita',
+  RKSI:'Seoul Incheon', ZSPD:'Shanghai PVG', ZBAA:'Peking',
+  VABB:'Mumbai',      VIDP:'Delhi',        WSSS:'Singapur',
+  VTBS:'Bangkok',     WMKK:'Kuala Lumpur', RPLL:'Manila',
+  VDPP:'Phnom Penh',  VVNB:'Hanoi',        VVTS:'Ho-Chi-Minh',
+  OMDB:'Dubai',       OBBI:'Bahrain',      OKBK:'Kuwait',
+  OERK:'Riad',        OEJN:'Jeddah',       OTHH:'Doha',
+  OOMS:'Muskat',
+  // Pacific/Africa/Other
+  YSSY:'Sydney',      YMML:'Melbourne',    YBBN:'Brisbane',
+  NZAA:'Auckland',    FAOR:'Johannesburg', FMMI:'Mauritius',
+  HECA:'Kairo',       HAAB:'Addis Abeba',  DNMM:'Lagos',
+};
+
+// ══════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════
+let myLat = null, myLon = null;
+let aircraft = {};
+let knownHexes = new Set();
+let selectedHex = null;
+let routeCache = {};
+let operatorCache = {};
+let isFetching = false;
+let myTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone; // Fallback: Gerätezeitzone
+
+const REFRESH_MS = 60000;
+
+// ══════════════════════════════════════════════
+// FAVORITEN
+// ══════════════════════════════════════════════
+let favorites = JSON.parse(localStorage.getItem('adsb_favorites') || '[]');
+
+function saveFavorites() {
+  localStorage.setItem('adsb_favorites', JSON.stringify(favorites));
+}
+
+function renderFavList() {
+  const list = document.getElementById('fav-list');
+  const count = document.getElementById('fav-count');
+  const activeCallsigns = new Set(Object.values(aircraft).map(ac => (ac.flight||'').trim()));
+  count.textContent = favorites.length ? `(${favorites.length})` : '';
+  list.innerHTML = favorites.map(cs => {
+    const isActive = activeCallsigns.has(cs);
+    return `<div class="fav-tag${isActive ? ' active' : ''}">
+      ${isActive ? '✈ ' : ''}${cs}
+      <span onclick="removeFav('${cs}')">✕</span>
+    </div>`;
+  }).join('');
+}
+
+function addFav() {
+  const input = document.getElementById('fav-input');
+  const cs = input.value.trim().toUpperCase();
+  if (!cs || favorites.includes(cs)) { input.value = ''; return; }
+  favorites.push(cs);
+  saveFavorites();
+  renderFavList();
+  input.value = '';
+}
+
+function removeFav(cs) {
+  favorites = favorites.filter(f => f !== cs);
+  saveFavorites();
+  renderFavList();
+}
+
+function toggleFavPanel() {
+  const body = document.getElementById('fav-body');
+  body.classList.toggle('open');
+}
+
+// Enter-Taste im Input
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('fav-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addFav();
+  });
+  renderFavList();
+});
+
+// Favoriten-Match prüfen (wird nach jedem fetchData aufgerufen)
+const PUSH_SERVER = 'https://web-production-a6fc8.up.railway.app';
+const VAPID_PUBLIC_KEY = 'BNf4HRbdD_lfu9plUymsLJ6-f-9m4PZX460JrOn9Fs5giBuxVHq1IBiPpk9LnStNgRlROphf9a4eA4wZheXRsXU';
+
+let pushSubscription = null;
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function initPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    pushSubscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    await fetch(`${PUSH_SERVER}/subscribe`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(pushSubscription)
+    });
+    updatePushBtn(true);
+  } catch(e) {
+    console.warn('Push init failed:', e);
+  }
+}
+
+async function disablePush() {
+  if (!pushSubscription) return;
+  await fetch(`${PUSH_SERVER}/unsubscribe`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(pushSubscription)
+  });
+  await pushSubscription.unsubscribe();
+  pushSubscription = null;
+  updatePushBtn(false);
+}
+
+function updatePushBtn(active) {
+  const btn = document.getElementById('push-btn');
+  if (!btn) return;
+  btn.textContent = active ? '🔔 AN' : '🔕 AUS';
+  btn.style.color = active ? '#3f9' : '#456';
+}
+
+async function checkFavorites() {
+  const activeCallsigns = new Set(
+    Object.values(aircraft)
+      .map(ac => (ac.flight||'').trim())
+      .filter(Boolean)
+  );
+  renderFavList();
+  if (!favorites.length || !pushSubscription) return;
+  // Nur Favoriten die im Alert-Radius sind
+  const alertNm = parseInt(document.getElementById('alert-input').value) || 10;
+  const activeInAlert = Object.values(aircraft)
+    .filter(ac => favorites.includes((ac.flight||'').trim()) && (ac._dst||999) <= alertNm)
+    .map(ac => (ac.flight||'').trim());
+  if (!activeInAlert.length) return;
+  try {
+    await fetch(`${PUSH_SERVER}/check`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        favorites: favorites,
+        active: [...activeCallsigns]
+      })
+    });
+  } catch(e) { /* ignore */ }
+}
+
+
+
+function getAirline(callsign, reg) {
+  if (!callsign) return '';
+  const cs = callsign.trim();
+  // 1. Callsign-spezifischer Cache (aus API)
+  if (operatorCache[cs]) return operatorCache[cs];
+  // 2. Hardcodierte ICAO-Prefix-Map
+  return AIRLINES[cs.slice(0,3).toUpperCase()] || '';
+}
+
+function getAircraftName(code) {
+  if (!code) return '';
+  return AIRCRAFT_TYPES[code.toUpperCase()] || code;
+}
+
+function getCity(icao) {
+  return AIRPORTS[icao] || icao;
+}
+
+// ══════════════════════════════════════════════
+// CANVAS / RADAR
+// ══════════════════════════════════════════════
+const canvas = document.getElementById('radar-canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const panel = document.getElementById('radar-panel');
+  const size = Math.min(panel.clientWidth, panel.clientHeight) - 24;
+  canvas.width = size;
+  canvas.height = size;
+  drawRadar();
+}
+
+function altColor(alt) {
+  if (alt === 'ground' || alt == null) return '#fa3';
+  const a = parseInt(alt);
+  if (a < 5000)  return '#3f9';
+  if (a < 15000) return '#ff9';
+  if (a < 30000) return '#4af';
+  return '#f66';
+}
+
+function altClass(alt) {
+  if (alt === 'ground' || !alt) return 'alt-gnd';
+  const a = parseInt(alt);
+  if (a < 5000)  return 'alt-lo';
+  if (a < 30000) return 'alt-mid';
+  return 'alt-hi';
+}
+
+function fmtAlt(alt) {
+  if (alt === 'ground') return 'GND';
+  if (!alt) return '–';
+  const fl = Math.round(parseInt(alt) / 100);
+  return `FL${String(fl).padStart(3,'0')}`;
+}
+
+function fmtAltFull(alt) {
+  if (alt === 'ground') return 'Am Boden';
+  if (!alt) return '–';
+  const ft = parseInt(alt);
+  return `${ft.toLocaleString('de-DE')} ft (${fmtAlt(alt)})`;
+}
+
+function drawRadar() {
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2, R = Math.min(cx,cy) - 4;
+  const radiusNm = parseInt(document.getElementById('radius-input').value) || 25;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.fillStyle = '#06090f'; ctx.fill();
+
+  // rings
+  [.25,.5,.75,1].forEach((f,i) => {
+    ctx.beginPath(); ctx.arc(cx,cy,R*f,0,Math.PI*2);
+    ctx.strokeStyle = i===3 ? '#1a2d55' : '#0d1830';
+    ctx.lineWidth = i===3 ? 1.5 : .7; ctx.stroke();
+    if (f < 1) {
+      ctx.fillStyle = '#243060'; ctx.font = '9px Courier New';
+      ctx.fillText(`${Math.round(radiusNm*f)}nm`, cx+R*f+3, cy-2);
+    }
+  });
+
+  // cross
+  ctx.strokeStyle = '#0d1830'; ctx.lineWidth = .6;
+  ctx.setLineDash([3,6]);
+  [[cx,cy-R,cx,cy+R],[cx-R,cy,cx+R,cy]].forEach(([x1,y1,x2,y2])=>{
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // cardinals
+  ctx.fillStyle = '#2a5080'; ctx.font = 'bold 10px Courier New'; ctx.textAlign='center';
+  ctx.fillText('N',cx,cy-R+13); ctx.fillText('S',cx,cy+R-3);
+  ctx.textAlign='left'; ctx.fillText('E',cx+R-13,cy+4);
+  ctx.fillText('W',cx-R+2,cy+4); ctx.textAlign='center';
+
+  // alert ring
+  const alertNm = parseInt(document.getElementById('alert-input').value) || 15;
+  const ar = R*(alertNm/radiusNm);
+  if (ar<=R) {
+    ctx.beginPath(); ctx.arc(cx,cy,ar,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,136,0,.3)'; ctx.lineWidth=1;
+    ctx.setLineDash([3,5]); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // aircraft
+  Object.values(aircraft).forEach(ac => {
+    if (ac.lat==null||myLat==null) return;
+    const dst = ac.dst ?? haversine(myLat,myLon,ac.lat,ac.lon);
+    if (dst > radiusNm) return;
+    const brg = bearingTo(myLat,myLon,ac.lat,ac.lon);
+    const frac = dst/radiusNm;
+    const rad = (brg-90)*Math.PI/180;
+    const x = cx+R*frac*Math.cos(rad), y = cy+R*frac*Math.sin(rad);
+    const color = altColor(ac.alt_baro);
+    const isSel = ac.hex===selectedHex;
+    const sz = isSel?9:5.5;
+    const track = ac.track??0;
+
+    ctx.save();
+    ctx.translate(x,y); ctx.rotate((track-90)*Math.PI/180);
+    ctx.beginPath(); ctx.moveTo(sz,0);
+    ctx.lineTo(-sz*.6,-sz*.5); ctx.lineTo(-sz*.3,0); ctx.lineTo(-sz*.6,sz*.5);
+    ctx.closePath();
+    ctx.fillStyle=color; ctx.globalAlpha=isSel?1:.8; ctx.fill();
+    if (isSel) { ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke(); }
+    ctx.restore();
+
+    const label = (ac.flight||ac.hex||'').trim();
+    ctx.globalAlpha=isSel?1:.7;
+    ctx.fillStyle=isSel?'#fff':color;
+    ctx.font=isSel?'bold 8px Courier New':'7.5px Courier New';
+    ctx.textAlign='left';
+    ctx.fillText(label, x+sz+2, y+3);
+    ctx.globalAlpha=1;
+  });
+
+  // me
+  ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2);
+  ctx.fillStyle='#4af'; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx,cy,9,0,Math.PI*2);
+  ctx.strokeStyle='rgba(68,170,255,.35)'; ctx.lineWidth=1.5; ctx.stroke();
+}
+
+// ══════════════════════════════════════════════
+// GEO HELPERS
+// ══════════════════════════════════════════════
+function haversine(lat1,lon1,lat2,lon2) {
+  const R=3440.065;
+  const dL=(lat2-lat1)*Math.PI/180, dO=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dL/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dO/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function bearingTo(lat1,lon1,lat2,lon2) {
+  const dO=(lon2-lon1)*Math.PI/180;
+  const y=Math.sin(dO)*Math.cos(lat2*Math.PI/180);
+  const x=Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180)-Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos(dO);
+  return ((Math.atan2(y,x)*180/Math.PI)+360)%360;
+}
+
+// ══════════════════════════════════════════════
+// FETCH ROUTE (adsbdb.com – kostenlos, CORS OK)
+// Normalisiertes Format: { orig:{iata,icao,city}, dest:{iata,icao,city} }
+// ══════════════════════════════════════════════
+async function fetchRoute(callsign) {
+  if (!callsign) return null;
+  const cs = callsign.trim();
+  if (routeCache[cs] !== undefined) return routeCache[cs];
+  routeCache[cs] = null; // Platzhalter gegen Doppel-Anfragen
+  try {
+    const r = await fetch(`https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`,
+                          {signal: AbortSignal.timeout(6000)});
+    if (!r.ok) return null;
+    const d = await r.json();
+    const fr = d?.response?.flightroute;
+    // Airline-Name wird nicht hier gecacht – fetchOperator() macht das zuverlässiger
+    // mit Registrierungs-Fallback (SP- = Sprint Air, HA- = Fleet Air etc.)
+    if (!fr?.origin?.iata_code || !fr?.destination?.iata_code) return null;
+    const route = {
+      orig: { iata: fr.origin.iata_code,      icao: fr.origin.icao_code,      city: AIRPORTS[fr.origin.iata_code] || AIRPORTS[fr.origin.icao_code] || fr.origin.municipality      || fr.origin.name },
+      dest: { iata: fr.destination.iata_code, icao: fr.destination.icao_code, city: AIRPORTS[fr.destination.iata_code] || AIRPORTS[fr.destination.icao_code] || fr.destination.municipality || fr.destination.name },
+    };
+    routeCache[cs] = route;
+    return route;
+  } catch { return null; }
+}
+
+// ══════════════════════════════════════════════
+// HINTERGRUND-ROUTENLADEN für alle Flugzeuge
+// Lädt je 4 Callsigns parallel, aktualisiert
+// die Liste sobald Ergebnisse eintreffen.
+// ══════════════════════════════════════════════
+async function fetchAllRoutes() {
+  const calls = Object.values(aircraft)
+    .map(ac => (ac.flight||'').trim())
+    .filter(cs => cs.length >= 3 && !Object.prototype.hasOwnProperty.call(routeCache, cs));
+
+  const BATCH = 4;
+  for (let i = 0; i < calls.length; i += BATCH) {
+    const batch = calls.slice(i, i + BATCH);
+    await Promise.all(batch.map(cs => fetchRoute(cs)));
+    renderList();
+  }
+
+  // Für Callsigns ohne Routendaten trotzdem Airline-Namen nachholen
+  await fetchAllOperators();
+}
+
+// ══════════════════════════════════════════════
+// AIRLINE-NAME via adsbdb Operator-API
+// ══════════════════════════════════════════════
+async function fetchOperator(callsign, reg) {
+  if (!callsign) return null;
+  const cs = callsign.trim();
+  const prefix = cs.slice(0,3).toUpperCase();
+  if (!/^[A-Z]{3}$/.test(prefix)) return null;
+  if (Object.prototype.hasOwnProperty.call(operatorCache, cs)) return operatorCache[cs];
+
+  // Hardcodierte Map hat Vorrang – verhindert veraltete adsbdb-Einträge
+  if (AIRLINES[prefix]) { operatorCache[cs] = AIRLINES[prefix]; return operatorCache[cs]; }
+
+  operatorCache[cs] = null;
+  try {
+    const r = await fetch(`https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`,
+                          {signal: AbortSignal.timeout(6000)});
+    if (r.ok) {
+      const d = await r.json();
+      const name = d?.response?.flightroute?.airline?.name;
+      if (name) { operatorCache[cs] = name; return name; }
+    }
+  } catch { /* ignore */ }
+  return operatorCache[cs];
+}
+
+async function fetchAllOperators() {
+  const candidates = [...new Map(
+    Object.values(aircraft)
+      .filter(ac => (ac.flight||'').trim().length >= 3
+                 && /^[A-Z]{3}/.test((ac.flight||'').trim())
+                 && !Object.prototype.hasOwnProperty.call(operatorCache, (ac.flight||'').trim()))
+      .map(ac => [(ac.flight||'').trim(), ac.r||''])
+  ).entries()]; // [[callsign, reg], ...]
+
+  const BATCH = 6;
+  for (let i = 0; i < candidates.length; i += BATCH) {
+    await Promise.all(candidates.slice(i, i + BATCH).map(([cs, reg]) => fetchOperator(cs, reg)));
+    renderList();
+  }
+}
+
+// ══════════════════════════════════════════════
+// MAIN FETCH
+// ══════════════════════════════════════════════
+async function fetchData() {
+  if (isFetching) return;          // Parallele Aufrufe verhindern
+  if (!myLat) { await getLocation(); if (!myLat) return; }
+  isFetching = true;
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  document.getElementById('spinner').classList.add('visible');
+  const radius = parseInt(document.getElementById('radius-input').value)||25;
+
+  try {
+    // airplanes.live hat native CORS-Unterstützung → kein Proxy nötig, kein Caching-Problem
+    // Fallback auf corsproxy.io falls direkt blockiert
+    const directUrl = `https://api.airplanes.live/v2/point/${myLat.toFixed(4)}/${myLon.toFixed(4)}/${radius}`;
+    const proxyUrl  = `https://corsproxy.io/?${encodeURIComponent(directUrl)}`;
+    let resp;
+    try {
+      resp = await fetch(directUrl, { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) throw new Error('direct ' + resp.status);
+    } catch {
+      resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} (proxy)`);
+    const data = await resp.json();
+    const alertNm = parseInt(document.getElementById('alert-input').value)||15;
+    const prevHexes = new Set(knownHexes);
+    const fresh = {};
+
+    (data.ac||[]).forEach(ac => {
+      fresh[ac.hex] = ac;
+      // Besuch zählen: Flugzeug war weder im letzten Fetch noch beim letzten bekannten
+      // Radius-Zustand (aus localStorage, max. 10 Min. alt) im Radius
+      if (!prevHexes.has(ac.hex)) {
+        knownHexes.add(ac.hex);
+        if (prevHexes.size > 0) {
+          // Toast nur bei echtem Neuzugang (nicht beim initialen Load)
+          const dst = ac.dst ?? (ac.lat!=null ? haversine(myLat,myLon,ac.lat,ac.lon) : 999);
+          const call = (ac.flight||ac.hex||'').trim();
+          const airline = getAirline(ac.flight, ac.r);
+          if (dst <= alertNm) {
+            showToast(`🚨 ${call}${airline?' – '+airline:''} – ${dst.toFixed(1)} nm – ${fmtAlt(ac.alt_baro)}`, true);
+          } else {
+            showToast(`✈ Neu: ${call}${airline?' ('+airline+')':''}  ${dst.toFixed(1)} nm`);
+          }
+        }
+      }
+    });
+    // Besuche + aktuellen Radius-Inhalt persistieren
+    aircraft = fresh;
+    renderList();
+    drawRadar();
+    lastFetchTime = Date.now();
+    setApiStatus('green', `${data.total??Object.keys(aircraft).length} Flugzeuge`);
+    document.getElementById('last-update').textContent = 'Update: '+new Date().toLocaleTimeString('de-DE');
+    document.getElementById('count-txt').textContent = `${Object.keys(aircraft).length} Flugzeuge`;
+
+    if (selectedHex && aircraft[selectedHex]) selectAircraft(selectedHex);
+
+    // Routen nachladen (Airline-Name kommt dabei automatisch mit)
+    fetchAllRoutes();
+    checkFavorites();
+
+  } catch(e) {
+    const msg = e.name === 'TimeoutError' ? 'Timeout' :
+                (e.message.includes('Failed to fetch') || e.message.includes('Load failed') || e.message.includes('NetworkError'))
+                  ? 'Kein Netz / CORS' : e.message.slice(0, 30);
+    setApiStatus('red', '⚠ ' + msg);
+    document.getElementById('last-update').textContent = 'Fehler: ' + msg;
+  } finally {
+    isFetching = false;
+    btn.disabled = false;
+    document.getElementById('spinner').classList.remove('visible');
+  }
+}
+
+// ══════════════════════════════════════════════
+// RENDER LIST
+// ══════════════════════════════════════════════
+function renderList() {
+  const radiusNm = parseInt(document.getElementById('radius-input').value)||25;
+  const alertNm  = parseInt(document.getElementById('alert-input').value)||15;
+  const acArr = Object.values(aircraft)
+    .filter(ac => ac.lat!=null||ac.dst!=null)
+    .map(ac => { ac._dst = ac.dst??(ac.lat!=null?haversine(myLat,myLon,ac.lat,ac.lon):9999); return ac; })
+    .sort((a,b) => a._dst-b._dst);
+
+  const scroll = document.getElementById('list-scroll');
+  scroll.innerHTML = '';
+  acArr.forEach(ac => {
+    const row = document.createElement('div');
+    row.className = 'ac-row'+(ac.hex===selectedHex?' selected':'')+(ac._dst<=alertNm?' alert-ac':'');
+    row.dataset.hex = ac.hex;
+
+    const call = (ac.flight||'').trim()||ac.hex;
+    const airline = getAirline(ac.flight||'', ac.r);
+    const typeName = ac.t ? (AIRCRAFT_TYPES[ac.t.toUpperCase()]||ac.t) : '–';
+    const rt = routeCache[call];
+    const routeStr = rt ? `${rt.orig.iata}›${rt.dest.iata}` : '–';
+    row.innerHTML = `
+      <span class="col-call">${call}</span>
+      <span class="col-airline">${airline||'–'}</span>
+      <span class="col-type">${ac.t||'–'}</span>
+      <span class="col-route">${routeStr}</span>
+      <span class="col-alt ${altClass(ac.alt_baro)}">${fmtAlt(ac.alt_baro)}</span>
+      <span class="col-dist">${ac._dst<9999?ac._dst.toFixed(1):'–'}</span>
+      <span class="col-spd">${ac.gs?Math.round(ac.gs):'–'}</span>
+    `;
+    row.addEventListener('click', () => selectAircraft(ac.hex));
+    scroll.appendChild(row);
+  });
+}
+
+// ══════════════════════════════════════════════
+// DETAIL PANEL (FR24-style)
+// ══════════════════════════════════════════════
+async function selectAircraft(hex) {
+  selectedHex = hex===selectedHex ? null : hex;
+  renderList(); drawRadar();
+
+  const ac = aircraft[selectedHex];
+  const panel = document.getElementById('detail-panel');
+  if (!ac || !selectedHex) { panel.classList.remove('visible'); return; }
+
+  const call = (ac.flight||'').trim()||ac.hex;
+  const airline = getAirline(ac.flight||'', ac.r);
+  const typeFull = getAircraftName(ac.t||'');
+
+  // Header
+  document.getElementById('dp-callsign').textContent = call;
+  document.getElementById('dp-airline').textContent = airline||'Unbekannte Airline';
+
+  // Badges
+  const badges = document.getElementById('dp-badges');
+  const alertNm = parseInt(document.getElementById('alert-input').value)||15;
+  badges.innerHTML = `
+    ${ac.t?`<span class="badge badge-type">${ac.t}</span>`:''}
+    ${ac._dst<=alertNm?'<span class="badge badge-alert">⚠ ALERT ZONE</span>':''}
+  `;
+
+  // Flugzeugdaten
+  document.getElementById('dp-type').textContent    = typeFull || '–';
+  document.getElementById('dp-reg').textContent     = ac.r    || '–';
+  document.getElementById('dp-hex').textContent     = ac.hex  || '–';
+  document.getElementById('dp-squawk').textContent  = ac.squawk || '–';
+  document.getElementById('dp-alt').textContent     = fmtAltFull(ac.alt_baro);
+  document.getElementById('dp-spd').textContent     = ac.gs   ? Math.round(ac.gs)   + ' kt'       : '–';
+  document.getElementById('dp-hdg').textContent     = ac.track? Math.round(ac.track) + '°'         : '–';
+  const vr = ac.baro_rate;
+  document.getElementById('dp-vrate').textContent   = vr!=null? (vr>0?'+':'')+vr.toLocaleString('de-DE')+' ft/min' : '–';
+  document.getElementById('dp-dist').textContent    = ac._dst<9999 ? ac._dst.toFixed(1)+' nm'     : '–';
+  document.getElementById('dp-rssi').textContent    = ac.rssi!=null? ac.rssi+' dBFS'               : '–';
+
+  panel.classList.add('visible');
+
+  // Route anzeigen
+  function applyRoute(rt) {
+    if (!rt) return;
+    document.getElementById('dp-orig-iata').textContent = rt.orig.iata;
+    document.getElementById('dp-orig-city').textContent = rt.orig.city || rt.orig.icao || '–';
+    document.getElementById('dp-dest-iata').textContent = rt.dest.iata;
+    document.getElementById('dp-dest-city').textContent = rt.dest.city || rt.dest.icao || '–';
+    document.getElementById('dp-dist-label').textContent = '';
+    document.getElementById('dp-route-section').style.display = 'block';
+  }
+
+  const rt = routeCache[call];
+  if (rt) {
+    applyRoute(rt);
+  } else {
+    document.getElementById('dp-orig-iata').textContent = '–';
+    document.getElementById('dp-orig-city').textContent = '';
+    document.getElementById('dp-dest-iata').textContent = '–';
+    document.getElementById('dp-dest-city').textContent = '';
+    document.getElementById('dp-route-section').style.display = 'none';
+    const fetched = await fetchRoute(call);
+    if (fetched && selectedHex === hex) {
+      applyRoute(fetched);
+      renderList();
+    }
+  }
+}
+
+function closeDetail() {
+  selectedHex = null;
+  document.getElementById('detail-panel').classList.remove('visible');
+  renderList(); drawRadar();
+}
+
+// ══════════════════════════════════════════════
+// TOAST NOTIFICATIONS
+// ══════════════════════════════════════════════
+function showToast(msg, isAlert=false) {
+  const container = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast' + (isAlert ? ' alert' : '');
+  t.textContent = msg;
+  container.appendChild(t);
+  setTimeout(() => t.remove(), 5100);
+}
+
+// ══════════════════════════════════════════════
+// STATUS-ANZEIGE
+// ══════════════════════════════════════════════
+function setApiStatus(color, text) {
+  const dot = document.getElementById('api-dot');
+  const txt = document.getElementById('api-txt');
+  dot.className = 'dot ' + color;
+  txt.textContent = 'API: ' + text;
+}
+
+function setGpsStatus(color, text) {
+  const dot = document.getElementById('gps-dot');
+  const txt = document.getElementById('gps-txt');
+  dot.className = 'dot ' + color;
+  txt.textContent = 'GPS: ' + text;
+}
+
+// ══════════════════════════════════════════════
+// GPS-TIMEZONE (lokale Uhrzeit am Standort)
+// ══════════════════════════════════════════════
+async function fetchTimezone(lat, lon) {
+  try {
+    const r = await fetch(
+      `https://timezonefinder.michelfe.it/api/0?lat=${lat}&lng=${lon}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    const d = await r.json();
+    if (d?.timezone_id) {
+      myTimezone = d.timezone_id;
+      // Radius sofort mit richtiger Ortszeit neu setzen
+      autoSetRadius();
+    }
+  } catch { /* Gerätezeitzone bleibt als Fallback */ }
+}
+
+// ══════════════════════════════════════════════
+// RADIUS NACH ORTSZEIT (GPS-Standort)
+// ══════════════════════════════════════════════
+function autoSetRadius() {
+  let h;
+  try {
+    h = parseInt(new Intl.DateTimeFormat('en-US', {
+      timeZone: myTimezone,
+      hour: 'numeric',
+      hour12: false
+    }).format(new Date()));
+  } catch {
+    h = new Date().getHours();
+  }
+  const target = (h >= 22 || h < 6) ? 35 : 25;
+  const input = document.getElementById('radius-input');
+  if (input && parseInt(input.value) !== target) input.value = target;
+}
+
+// ══════════════════════════════════════════════
+// STANDORTERMITTLUNG
+// ══════════════════════════════════════════════
+async function getLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      document.getElementById('loc-modal').classList.add('visible');
+      resolve(); return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        myLat = pos.coords.latitude;
+        myLon = pos.coords.longitude;
+        document.getElementById('footer-pos').textContent =
+          `Pos: ${myLat.toFixed(4)}, ${myLon.toFixed(4)}`;
+        setGpsStatus('green', `${myLat.toFixed(2)}, ${myLon.toFixed(2)}`);
+        document.getElementById('loc-modal').classList.remove('visible');
+        fetchTimezone(myLat, myLon);
+        resolve();
+      },
+      () => {
+        setGpsStatus('yellow', 'Manuell');
+        document.getElementById('loc-modal').classList.add('visible');
+        resolve();
+      },
+      { timeout: 10000, maximumAge: 60000 }
+    );
+  });
+}
+
+async function tryGps() {
+  const btn = document.getElementById('loc-gps-btn');
+  btn.textContent = '📍 Ermittle Standort…';
+  btn.disabled = true;
+  await getLocation();
+  btn.textContent = '📍 Meinen Standort automatisch ermitteln';
+  btn.disabled = false;
+  if (myLat) fetchData();
+}
+
+
+
+
+async function refreshGpsQuiet() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      myLat = pos.coords.latitude;
+      myLon = pos.coords.longitude;
+      document.getElementById('footer-pos').textContent =
+        `Pos: ${myLat.toFixed(4)}, ${myLon.toFixed(4)}`;
+      setGpsStatus('green', `${myLat.toFixed(2)}, ${myLon.toFixed(2)}`);
+    },
+    () => {},
+    { timeout: 8000, maximumAge: 120000 }
+  );
+}
+
+function togglePush() {
+  if (pushSubscription) { disablePush(); } else { initPush(); }
+}
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
+autoSetRadius();
+setInterval(autoSetRadius, 60 * 1000);
+window.addEventListener('resize', resizeCanvas);
+requestAnimationFrame(() => requestAnimationFrame(resizeCanvas));
+drawRadar();
+getLocation().then(() => { if (myLat) fetchData(); });
+setInterval(() => { if (myLat) fetchData(); }, REFRESH_MS);
+setInterval(refreshGpsQuiet, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && myLat) fetchData();
+});
+
+// Push-Status beim Start wiederherstellen
+(async () => {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      pushSubscription = sub;
+      updatePushBtn(true);
+      // Subscription bei Server neu registrieren (Railway-Restart) -- Fehler ignorieren
+      fetch(`${PUSH_SERVER}/subscribe`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(sub)
+      }).catch(() => {});
+    }
+  } catch(e) { console.warn('Push restore failed:', e); }
+})();
+</script>
+</body>
+</html>
