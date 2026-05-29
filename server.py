@@ -14,9 +14,8 @@ VAPID_EMAIL       = os.environ.get('VAPID_EMAIL', 'admin@example.com')
 VAPID_CLAIMS      = {"sub": f"mailto:{VAPID_EMAIL}"}
 
 SUBS_FILE = '/tmp/subscriptions.json'
-COOLDOWN_SECONDS = 300  # 5 Minuten pro Callsign
+COOLDOWN_SECONDS = 300
 
-# {callsign: timestamp_last_notified}
 notified_cache = {}
 
 def load_subscriptions():
@@ -70,7 +69,6 @@ def check():
     if not matches or not subscriptions:
         return jsonify({'matches': list(matches)})
 
-    # Nur Callsigns die nicht im Cooldown sind
     now = time.time()
     new_matches = {cs for cs in matches if now - notified_cache.get(cs, 0) > COOLDOWN_SECONDS}
 
@@ -79,22 +77,28 @@ def check():
     if not new_matches:
         return jsonify({'matches': list(matches), 'cooldown': True})
 
-    message = '✈ ' + ', '.join(sorted(new_matches)) + ' in deinem Radar!'
-    dead = []
+    title   = 'ADSB Radar'
+    body    = '✈ ' + ', '.join(sorted(new_matches)) + ' in deinem Radar!'
+    # JSON payload -- kompatibel mit Chrome und Safari
+    payload = json.dumps({'title': title, 'body': body})
 
+    dead = []
     for sub in subscriptions:
         try:
             webpush(
                 subscription_info=sub,
-                data=message,
+                data=payload,
                 vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims=VAPID_CLAIMS
+                vapid_claims=VAPID_CLAIMS,
+                content_encoding='aes128gcm',
+                headers={'Content-Type': 'application/json'}
             )
-            print(f"Push sent OK: {message}")
+            print(f"Push sent OK: {body}")
             for cs in new_matches:
                 notified_cache[cs] = now
         except WebPushException as e:
-            print(f"Push failed: {e}")
+            resp_body = e.response.text if e.response else 'no response'
+            print(f"Push failed: {e} -- {resp_body}")
             if e.response and e.response.status_code in (404, 410):
                 dead.append(sub)
         except Exception as e:
