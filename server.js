@@ -13,8 +13,7 @@ const COOLDOWN_MS = 5 * 60 * 1000; // 5 Minuten pro Callsign
 const STATE_FILE   = '/data/userstate.json';
 const HISTORY_FILE = '/data/flighthistory.json';
 
-// Sicherstellen dass /data existiert
-if (!fs.existsSync('/data')) fs.mkdirSync('/data', { recursive: true });
+try { fs.mkdirSync('/data', { recursive: true }); } catch(e) {}
 
 function loadJSON(file, def) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
