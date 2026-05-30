@@ -20,6 +20,11 @@ function loadJSON(file, def) {
   catch { return def; }
 }
 
+function saveJSON(file, data) {
+  try { fs.writeFileSync(file, JSON.stringify(data)); }
+  catch(e) { console.error('Save error:', e.message); }
+}
+
 function loadUserState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); }
   catch { return {}; }
