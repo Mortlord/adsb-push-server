@@ -10,7 +10,13 @@ app.use(express.json());
 const BOT_TOKEN   = process.env.TELEGRAM_BOT_TOKEN || '';
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 Minuten pro Callsign
 
-const STATE_FILE = '/tmp/userstate.json';
+const STATE_FILE   = '/data/userstate.json';
+const HISTORY_FILE = '/data/flighthistory.json';
+
+function loadJSON(file, def) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { return def; }
+}
 
 function loadUserState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); }
@@ -30,7 +36,7 @@ const notifiedCache = {};
 
 function sendTelegramMessage(chatId, text) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ chat_id: chatId, text });
+    const body = JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' });
     const req  = https.request({
       hostname: 'api.telegram.org',
       path:     `/bot${BOT_TOKEN}/sendMessage`,
@@ -70,6 +76,34 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+function bearing(lat1, lon1, lat2, lon2) {
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+  const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+            Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+  const deg = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  const dirs = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+let history = loadJSON(HISTORY_FILE, {});
+
+async function sendDailySummary() {
+  const today = new Date().toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+  for (const [chatId, entries] of Object.entries(history)) {
+    const todayEntries = (entries || []).filter(e => e.date === today);
+    if (!todayEntries.length) continue;
+    const unique = [...new Map(todayEntries.map(e => [e.callsign, e])).values()];
+    let text = `<b>✈ ADSB Radar – Zusammenfassung ${today}</b>\n\n`;
+    text += `${unique.length} Favorit${unique.length > 1 ? 'en' : ''} heute in deinem Radar:\n`;
+    unique.forEach(e => { text += `• <b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`; });
+    try {
+      await sendTelegramMessage(chatId, text);
+      console.log(`Daily summary sent to ${chatId}`);
+    } catch(e) { console.error(`Summary error: ${e.message}`); }
+  }
+}
+
 // App schickt beim Öffnen Standort + Favoriten
 app.post('/update', (req, res) => {
   const { chat_id, lat, lon, radius, favorites, alert_radius } = req.body;
@@ -104,38 +138,54 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', users: Object.keys(userState).length, bot: !!BOT_TOKEN });
 });
 
-// Polling: alle 60s für jeden registrierten User
+let lastSummaryDate = '';
+
 async function pollAll() {
-  // Polling läuft rund um die Uhr -- Tagesübersicht in poll.js um 07:55
+  const now      = Date.now();
+  const nowDE    = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin', hour: 'numeric', minute: 'numeric', hour12: false });
+  const hour     = parseInt(nowDE.split(':')[0]);
+  const minute   = parseInt(nowDE.split(':')[1]);
+  const todayStr = new Date().toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+  const timeStr  = new Date().toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' });
+
+  // Tagesübersicht um 07:55
+  if (hour === 7 && minute >= 55 && minute <= 59 && lastSummaryDate !== todayStr) {
+    lastSummaryDate = todayStr;
+    await sendDailySummary();
+  }
+
   for (const [chatId, state] of Object.entries(userState)) {
     if (!state.lat || !state.favorites.length) continue;
     try {
       const data = await fetchAircraft(state.lat, state.lon, state.radius);
       const aircraft = data.ac || [];
-      const now = Date.now();
 
       for (const ac of aircraft) {
         const callsign = (ac.flight || '').trim();
-        if (!callsign || !state.favorites.includes(callsign)) continue;
-
-        // Distanz berechnen
+        if (!callsign) continue;
+        const favs = (state.favorites || []).map(f => f.trim().toUpperCase());
+        if (!favs.includes(callsign.toUpperCase())) continue;
         if (ac.lat == null || ac.lon == null) continue;
+
         const dist = haversine(state.lat, state.lon, ac.lat, ac.lon);
         if (dist > state.alert_radius) continue;
 
-        // Cooldown prüfen
         const key = `${chatId}:${callsign}`;
         if (now - (notifiedCache[key] || 0) < COOLDOWN_MS) continue;
 
-        // Telegram senden
-        const text = `✈ ${callsign} ist in deinem Radar! (${dist.toFixed(1)} nm)`;
+        const dir  = bearing(state.lat, state.lon, ac.lat, ac.lon);
+        const text = `✈ <b>${callsign}</b> ist in deinem Radar!\n${dist.toFixed(1)} nm ${dir}`;
         await sendTelegramMessage(chatId, text);
         notifiedCache[key] = now;
-        console.log(`Telegram sent to ${chatId}: ${text}`);
+
+        if (!history[chatId]) history[chatId] = [];
+        history[chatId].push({ callsign, dist: dist.toFixed(1), dir, date: todayStr, time: timeStr });
+        if (history[chatId].length > 100) history[chatId] = history[chatId].slice(-100);
+        saveJSON(HISTORY_FILE, history);
+
+        console.log(`Telegram sent to ${chatId}: ${callsign} ${dist.toFixed(1)} nm ${dir}`);
       }
-    } catch(e) {
-      console.error(`Poll error for ${chatId}: ${e.message}`);
-    }
+    } catch(e) { console.error(`Poll error for ${chatId}: ${e.message}`); }
   }
 }
 
