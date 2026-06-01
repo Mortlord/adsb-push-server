@@ -25,9 +25,21 @@ function saveJSON(file, data) {
   catch(e) { console.error('Save error:', e.message); }
 }
 
+const STATS_FILE   = '/data/visitstats.json';
+
 let userState     = loadJSON(STATE_FILE,   {});
 let history       = loadJSON(HISTORY_FILE, {});
 let notifiedCache = loadJSON(CACHE_FILE,   {});
+let visitStats    = loadJSON(STATS_FILE,   {}); // { chatId: { callsign: count } }
+
+// Prefix-Matching: 'HVN' matcht HVN10, HVN18 etc.
+function matchesFavorite(callsign, favorites) {
+  const cs = callsign.toUpperCase();
+  return favorites.some(f => {
+    const fav = f.trim().toUpperCase();
+    return cs === fav || cs.startsWith(fav);
+  });
+}
 
 // ── Hilfsfunktionen ────────────────────────────────────────────
 
@@ -108,18 +120,35 @@ async function doPoll() {
     }
   }
 
-  // Favoriten prüfen
+  // Alle Flugzeuge im Alert-Radius zählen (unabhängig von Favoriten)
   for (const [chatId, state] of Object.entries(userState)) {
-    if (!state.lat || !state.favorites?.length) continue;
+    if (!state.lat) continue;
     try {
       const data     = await fetchAircraft(state.lat, state.lon, state.radius);
       const aircraft = data.ac || [];
 
       for (const ac of aircraft) {
         const callsign = (ac.flight || '').trim();
+        if (!callsign || ac.lat == null || ac.lon == null) continue;
+        const dist = haversine(state.lat, state.lon, ac.lat, ac.lon);
+        if (dist > state.alert_radius) continue;
+
+        // Besuch zählen -- einmal pro 5 Minuten pro Callsign
+        const visitKey = `${chatId}:visit:${callsign}`;
+        if (now - (notifiedCache[visitKey] || 0) >= COOLDOWN_MS) {
+          notifiedCache[visitKey] = now;
+          if (!visitStats[chatId]) visitStats[chatId] = {};
+          visitStats[chatId][callsign] = (visitStats[chatId][callsign] || 0) + 1;
+        }
+      }
+      saveJSON(STATS_FILE, visitStats);
+
+      // Favoriten prüfen mit Prefix-Matching
+      if (!state.favorites?.length) continue;
+      for (const ac of aircraft) {
+        const callsign = (ac.flight || '').trim();
         if (!callsign) continue;
-        const favs = state.favorites.map(f => f.trim().toUpperCase());
-        if (!favs.includes(callsign.toUpperCase())) continue;
+        if (!matchesFavorite(callsign, state.favorites)) continue;
         if (ac.lat == null || ac.lon == null) continue;
 
         const dist = haversine(state.lat, state.lon, ac.lat, ac.lon);
@@ -186,7 +215,59 @@ app.get('/get-chat-id', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/health', (req, res) => {
+// Telegram Webhook für Bot-Kommandos
+app.post('/telegram-webhook', async (req, res) => {
+  const msg = req.body?.message;
+  if (!msg) return res.json({ ok: true });
+  const chatId = String(msg.chat?.id);
+  const text   = msg.text || '';
+
+  if (text.startsWith('/stats')) {
+    const stats = visitStats[chatId];
+    if (!stats || !Object.keys(stats).length) {
+      await sendTelegramMessage(chatId, 'Noch keine Besuche aufgezeichnet.');
+      return res.json({ ok: true });
+    }
+    // Top 20 sortiert nach Anzahl
+    const sorted = Object.entries(stats)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20);
+    let reply = `<b>✈ Häufigste Besucher in deiner Alert Zone</b>\n\n`;
+    sorted.forEach(([cs, count], i) => {
+      reply += `${i + 1}. <b>${cs}</b> – ${count}x\n`;
+    });
+    await sendTelegramMessage(chatId, reply);
+  }
+
+  res.json({ ok: true });
+});
+
+// Webhook bei Telegram registrieren
+app.get('/setup-webhook', async (req, res) => {
+  const host = req.headers.host;
+  const url  = `https://${host}/telegram-webhook`;
+  try {
+    const r = await new Promise((resolve, reject) => {
+      const body = JSON.stringify({ url });
+      const reqH = https.request({
+        hostname: 'api.telegram.org',
+        path:     `/bot${BOT_TOKEN}/setWebhook`,
+        method:   'POST',
+        headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }, resp => {
+        let data = '';
+        resp.on('data', c => data += c);
+        resp.on('end', () => resolve(JSON.parse(data)));
+      });
+      reqH.on('error', reject);
+      reqH.write(body);
+      reqH.end();
+    });
+    res.json(r);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
   res.json({ status: 'ok', users: Object.keys(userState).length });
 });
 
