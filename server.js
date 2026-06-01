@@ -92,15 +92,16 @@ async function doPoll() {
   const todayStr = new Date().toLocaleDateString('de-DE',   { timeZone: 'Europe/Berlin' });
   const timeStr  = new Date().toLocaleTimeString('de-DE',   { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' });
 
-  // Tagesübersicht um 07:55
+  // Tagesübersicht um 07:55 -- letzte 24 Stunden
   if (hour === 7 && minute >= 55 && minute <= 59 && lastSummaryDate !== todayStr) {
     lastSummaryDate = todayStr;
+    const cutoff = now - 24 * 60 * 60 * 1000;
     for (const [chatId, entries] of Object.entries(history)) {
-      const todayEntries = (entries || []).filter(e => e.date === todayStr);
-      if (!todayEntries.length) continue;
-      const unique = [...new Map(todayEntries.map(e => [e.callsign, e])).values()];
-      let text = `<b>✈ ADSB Radar – Zusammenfassung ${todayStr}</b>\n\n`;
-      text += `${unique.length} Favorit${unique.length > 1 ? 'en' : ''} heute in deinem Radar:\n`;
+      const recent = (entries || []).filter(e => e.ts && e.ts >= cutoff);
+      if (!recent.length) continue;
+      const unique = [...new Map(recent.map(e => [e.callsign, e])).values()];
+      let text = `<b>✈ ADSB Radar – Letzte 24 Stunden</b>\n\n`;
+      text += `${unique.length} Favorit${unique.length > 1 ? 'en' : ''} in deinem Radar:\n`;
       unique.forEach(e => { text += `• <b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`; });
       try { await sendTelegramMessage(chatId, text); console.log(`Summary sent to ${chatId}`); }
       catch(e) { console.error(`Summary error: ${e.message}`); }
@@ -134,7 +135,7 @@ async function doPoll() {
         saveJSON(CACHE_FILE, notifiedCache);
 
         if (!history[chatId]) history[chatId] = [];
-        history[chatId].push({ callsign, dist: dist.toFixed(1), dir, date: todayStr, time: timeStr });
+        history[chatId].push({ callsign, dist: dist.toFixed(1), dir, date: todayStr, time: timeStr, ts: now });
         if (history[chatId].length > 100) history[chatId] = history[chatId].slice(-100);
         saveJSON(HISTORY_FILE, history);
 
