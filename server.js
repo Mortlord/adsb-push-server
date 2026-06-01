@@ -268,6 +268,7 @@ app.get('/setup-webhook', async (req, res) => {
 });
 
 
+app.get('/status', (req, res) => {
   res.json({ status: 'ok', users: Object.keys(userState).length });
 });
 
