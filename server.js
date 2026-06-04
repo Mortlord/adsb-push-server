@@ -128,9 +128,11 @@ function bearing(lat1, lon1, lat2, lon2) {
 // ── Heim-Bericht generieren (wiederverwendbar) ─────────────────
 
 function buildHeimReport(refDate) {
-  // refDate = Date-Objekt des Bezugstages (normalerweise gestern)
+  // refDate = gestern (Bezugstag für "Gestern"-Block)
   const ydayStr = refDate.toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
   const ydayMs  = refDate.getTime();
+  const nowMs   = Date.now();
+  const todayStr = new Date(nowMs).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
 
   function isoWeekday(dStr) {
     const [d, m, y] = dStr.split('.').map(Number);
@@ -165,15 +167,16 @@ function buildHeimReport(refDate) {
     return s;
   }
 
-  const weekDays  = daysRange(weekStart, ydayMs);
-  const monthDays = daysRange(monthStart, ydayMs);
+  // Woche und Monat bis heute (inkl.), Gestern bleibt Vortag
+  const weekDays  = daysRange(weekStart, nowMs);
+  const monthDays = daysRange(monthStart, nowMs);
 
   let report = `<b>🏠 Heimradar Freiburg – Callsign-Gruppen (20nm)</b>\n\n`;
   report += fmtTable(homeStats[ydayStr] || {}, `Gestern (${ydayStr})`);
   report += '\n';
-  report += fmtTable(sumDays(weekDays),  'Laufende Woche (Mo-So)');
+  report += fmtTable(sumDays(weekDays),  `Laufende Woche (Mo-So, inkl. heute)`);
   report += '\n';
-  report += fmtTable(sumDays(monthDays), `Laufender Monat (${mm}/${yy})`);
+  report += fmtTable(sumDays(monthDays), `Laufender Monat (${mm}/${yy}, inkl. heute)`);
   return report;
 }
 
