@@ -412,6 +412,7 @@ async function doPoll() {
       if (haversine(HOME_LAT, HOME_LON, ac.lat, ac.lon) > HOME_RADIUS) continue;
       const prefix = callsign.replace(/[0-9]/g, '').substring(0, 3).toUpperCase();
       if (prefix.length < 2) continue;
+      if (!/\d/.test(callsign)) continue; // kein Linienflug -- private Maschine ausschließen
       const homeKey = `home:${callsign}`;
       if (now - (notifiedCache[homeKey] || 0) < COOLDOWN_MS) continue;
       notifiedCache[homeKey] = now;
@@ -550,6 +551,30 @@ app.post('/telegram-webhook', async (req, res) => {
     } catch(e) {
       await sendTelegramMessage(chatId, 'Fehler beim Erstellen des Berichts.');
       console.error('heimreport error:', e.message);
+    }
+    return res.json({ ok: true });
+  }
+
+  if (text.startsWith('/unbekannt')) {
+    try {
+      // Alle Prefixe aus homeStats sammeln und gegen AIRLINE_NAMES prüfen
+      const totals = {};
+      for (const dayData of Object.values(homeStats)) {
+        for (const [p, c] of Object.entries(dayData)) {
+          if (!AIRLINE_NAMES[p]) totals[p] = (totals[p] || 0) + c;
+        }
+      }
+      if (!Object.keys(totals).length) {
+        await sendTelegramMessage(chatId, 'Alle Prefixe sind bekannt.');
+        return res.json({ ok: true });
+      }
+      const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+      let reply = `<b>❓ Unbekannte Callsign-Gruppen</b>\n\n`;
+      sorted.forEach(([p, c]) => { reply += `<b>${p}</b>: ${c}x\n`; });
+      await sendTelegramMessage(chatId, reply);
+    } catch(e) {
+      await sendTelegramMessage(chatId, 'Fehler beim Erstellen des Berichts.');
+      console.error('unbekannt error:', e.message);
     }
     return res.json({ ok: true });
   }
