@@ -27,6 +27,7 @@ function saveJSON(file, data) {
 
 const STATS_FILE      = '/data/visitstats.json';
 const HOME_STATS_FILE = '/data/homestats.json';
+const UNKNOWN_FILE    = '/data/unknowncallsigns.json';
 
 // Heimadresse fix: Ziegelweg 11, 79100 Freiburg
 const HOME_LAT    = 47.9732;
@@ -38,7 +39,9 @@ let history       = loadJSON(HISTORY_FILE, {});
 let notifiedCache = loadJSON(CACHE_FILE,   {});
 let visitStats    = loadJSON(STATS_FILE,   {}); // { chatId: { callsign: count } }
 // homeStats: { 'DD.MM.YYYY': { PREFIX: count } }
-let homeStats     = loadJSON(HOME_STATS_FILE, {});
+let homeStats         = loadJSON(HOME_STATS_FILE, {});
+// unknownCallsigns: { PREFIX: [callsign, ...] }
+let unknownCallsigns  = loadJSON(UNKNOWN_FILE, {});
 
 // ICAO-Prefix -> Klarname
 const AIRLINE_NAMES = {
@@ -418,6 +421,14 @@ async function doPoll() {
       notifiedCache[homeKey] = now;
       if (!homeStats[todayStr]) homeStats[todayStr] = {};
       homeStats[todayStr][prefix] = (homeStats[todayStr][prefix] || 0) + 1;
+
+      // Unbekannte Prefixe mit vollständigem Callsign aufzeichnen
+      if (!AIRLINE_NAMES[prefix]) {
+        if (!unknownCallsigns[prefix]) unknownCallsigns[prefix] = [];
+        if (!unknownCallsigns[prefix].includes(callsign))
+          unknownCallsigns[prefix].push(callsign);
+        saveJSON(UNKNOWN_FILE, unknownCallsigns);
+      }
     }
     saveJSON(HOME_STATS_FILE, homeStats);
     saveJSON(CACHE_FILE, notifiedCache);
@@ -570,7 +581,10 @@ app.post('/telegram-webhook', async (req, res) => {
       }
       const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
       let reply = `<b>❓ Unbekannte Callsign-Gruppen</b>\n\n`;
-      sorted.forEach(([p, c]) => { reply += `<b>${p}</b>: ${c}x\n`; });
+      sorted.forEach(([p, c]) => {
+        const examples = (unknownCallsigns[p] || []).slice(0, 3).join(', ');
+        reply += `<b>${p}</b>: ${c}x${examples ? ' – z.B. ' + examples : ''}\n`;
+      });
       await sendTelegramMessage(chatId, reply);
     } catch(e) {
       await sendTelegramMessage(chatId, 'Fehler beim Erstellen des Berichts.');
