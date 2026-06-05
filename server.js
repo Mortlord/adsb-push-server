@@ -85,7 +85,7 @@ const AIRLINE_NAMES = {
   CEY:"Air Century", CFE:"BA CityFlyer", CFG:"Condor Flugdienst", CGK:"Click Airways", CGP:"Cargo Plus Aviation",
   CHB:"West Air China", CHH:"Hainan Airlines", CHP:"Consorcio Aviaxsa", CHQ:"Chautauqua Airlines", CHW:"Charter Air",
   CHX:"Luftrettung", CIF:"CB Airways UK ( Interliging Flights )", CIM:"Cimber Air", CIX:"City Connexion Airlines", CJC:"Colgan Air",
-  CLH:"Lufthansa CityLine", CLI:"Calima Aviacion", CLJ:"Cello Aviation", CLW:"Centralwings", CMI:"Continental Micronesia",
+  CLH:"Lufthansa CityLine", CLI:"Calima Aviacion", CLJ:"Cello Aviation", CLX:"Cargolux", CLW:"Centralwings", CMI:"Continental Micronesia",
   CMA:"CMG Air Cargo", CMP:"Copa Airlines", CNF:"Canaryfly", CNO:"SAS Braathens", COA:"Continental Airlines", COE:"Comtel Air",
   COM:"Comair", CPA:"Cathay Pacific", CPN:"Caspian Airlines", CPZ:"Compass Airlines", CQH:"Spring Airlines",
   CQN:"Chongqing Airlines", CRK:"Hong Kong Airlines", CRL:"Corsairfly", CRO:"Crown Airways", CSA:"Czech Airlines",
