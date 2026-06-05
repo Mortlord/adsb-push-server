@@ -50,7 +50,7 @@ const AIRLINE_NAMES = {
   ABD:"Air Atlanta Icelandic", ABF:"Scanwings", ABI:"Aviabus", ABL:"Air Busan", ABQ:"Airblue",
   ABR:"ASL Airlines Belgium (FedEx)", ABS:"Transwest Air", ABY:"Air Arabia", ACA:"Air Canada", ACI:"Air Caledonie International",
   ACP:"Astral Aviation", ADE:"Ada Air", ADH:"Air One", ADO:"Hokkaido International Airlines", ADR:"Adria Airways",
-  AEA:"Air Europa", AEB:"Aero Benin", AEE:"Aegean Airlines", AEL:"Air Europe", AER:"Alaska Central Express",
+  AEA:"Air Europa", AEB:"Aero Benin", AEE:"Aegean Airlines", AEG:"Airest", AEL:"Air Europe", AER:"Alaska Central Express",
   AES:"ACES Colombia", AEU:"Astraeus", AEW:"Aerosvit Airlines", AEY:"Air Italy", AFG:"Ariana Afghan Airlines",
   AFL:"Aeroflot Russian Airlines", AFR:"Air France", AGV:"Air Glaciers", AGX:"Aviogenex", AHO:"Air Hamburg (AHO)",
   AHY:"Azerbaijan Airlines", AIA:"Avies", AIC:"Air India Limited", AIO:"United States Air Force", AIQ:"Thai AirAsia",
