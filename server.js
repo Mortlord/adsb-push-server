@@ -160,7 +160,7 @@ const AIRLINE_NAMES = {
   LTR:"Lufttransport", LTU:"Air Lituanica", LTY:"Liberty Airways", LUR:"Atlantis European Airways", LXP:"LAN Express",
   LXR:"Air Luxor", LZB:"Bulgaria Air", MAA:"MasAir", MAC:"Malta Air Charter", MAH:"Malév",
   MAI:"Mauritania Airlines International", MAK:"MAT Macedonian Airlines", MAL:"Morningstar Air Express", MAS:"Malaysia Airlines", MAU:"Air Mauritius",
-  MAV:"Maldivo Airlines", MCA:"MCA Airlines", MCK:"Macair Airlines", MDA:"Mandarin Airlines", MDG:"Air Madagascar",
+  MAV:"Maldivo Airlines", MBU:"Marabu", MCA:"MCA Airlines", MCK:"Macair Airlines", MDA:"Mandarin Airlines", MDG:"Air Madagascar",
   MDL:"Mandala Airlines", MDO:"Domenican Airlines", MDP:"Medallion Air", MDV:"Moldavian Airlines", MDW:"Midway Airlines",
   MEA:"Middle East Airlines", MEP:"Midwest Airlines", MES:"Mesaba Airlines", MGL:"MIAT Mongolian Airlines", MGX:"Montenegro Airlines",
   MIC:"Mint Airways", MJG:"Michael Airlines", MJP:"Air Majoro", MJX:"Euroline", MKD:"MAT Airways",
