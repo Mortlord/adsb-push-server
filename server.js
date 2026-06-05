@@ -239,7 +239,7 @@ const AIRLINE_NAMES = {
   UZB:"Uzbekistan Airways", VAS:"ATRAN Cargo Airlines", VAX:"V Air", VBW:"Air Burkina", VCV:"Conviasa",
   VDA:"Volga-Dnepr Airlines", VEX:"Virgin Express", VFC:"Vasco Air", VGN:"Virgin Nigeria Airways", VIA:"VIA Líneas Aéreas",
   VIM:"Air VIA", VIR:"Virgin Atlantic Airways", VIS:"Vision Air International", VJC:"VietJet Air", VJT:"VistaJet", VKH:"Viking Hellas",
-  VKJ:"VickJet", VLE:"Volare Airlines", VLG:"Vueling Airlines", VLK:"Vladivostok Air", VLM:"VLM Airlines",
+  VKG:"Sunclass Airlines", VKJ:"VickJet", VLE:"Volare Airlines", VLG:"Vueling Airlines", VLK:"Vladivostok Air", VLM:"VLM Airlines",
   VLO:"Varig Log", VLU:"Valuair", VNP:"Virgin Pacific", VOE:"VOLOTEA Airways", VOI:"Volaris",
   VOO:"Volotea", VOZ:"Virgin Australia", VQI:"Flyme (VP)", VRD:"Virgin America", VRN:"VRG Linhas Aereas",
   VSP:"VASP", VSV:"Scat Air", VTA:"Air Tahiti", VTI:"Air Vistara", VUE:"AD Aviation",
