@@ -103,7 +103,7 @@ const AIRLINE_NAMES = {
   EEU:"Eurofly Service", EFA:"Far Eastern Air Transport", EFY:"EasyFly", EGF:"American Eagle Airlines", EGH:"BBN-Airways",
   EGS:"Eagles Airlines", EHN:"East Horizon", EIA:"Evergreen International Airlines", EIN:"Aer Lingus", EJA:"NetJets", EJU:"easyJet Europe",
   ELA:"Eastland Air", ELC:"Small Planet Airlines", ELK:"ELK Airways", ELL:"Estonian Air", ELO:"Eurolot",
-  ELY:"El Al Israel Airlines", ENJ:"Enerjet", ENY:"Envoy Air", ENZ:"Jota Aviation", ERO:"Sun D'Or",
+  ELY:"El Al Israel Airlines", ENJ:"Enerjet", ENT:"Enter Air", ENY:"Envoy Air", ENZ:"Jota Aviation", ERO:"Sun D'Or",
   ERR:"Era Alaska", ERT:"Eritrean Airlines", ESK:"SkyEurope", ESR:"Eastar Jet", ETD:"Etihad Airways",
   ETH:"Ethiopian Airlines", EUD:"Air Italy Egypt", EUV:"EuropeSky", EVA:"EVA Air", EVC:"Comfort Express Virtual Charters Albany",
   EWG:"Eurowings", EXS:"Jet2.com", EZA:"Eznis Airways", EZE:"Eastern Airways", EZS:"easyJet Switzerland", EZY:"easyJet",
