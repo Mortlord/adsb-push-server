@@ -134,7 +134,7 @@ const AIRLINE_NAMES = {
   IDX:"Indonesa Air Aisa X", IGO:"IndiGo Airlines", IIA:"AIR INDOCHINE", IIR:"INAVIA Internacional", IKA:"Itek Air",
   ILN:"Interair South Africa", IMP:"Hellenic Imperial Airways", INE:"International Europe", IPV:"Parmiss Airlines (IPV)", IRA:"Iran Air",
   IRC:"Iran Aseman Airlines", IRK:"Kish Air", IRM:"Mahan Air", ISK:"Intersky", ISR:"Israir",
-  ISS:"Meridiana", ISV:"Islena De Inversiones", ISW:"Islas Airways", ISX:"Island Spirit", ITA:"ITA Airways", ITK:"Interlink Airlines",
+  ISS:"Meridiana", ISV:"Islena De Inversiones", ISW:"Islas Airways", ISX:"Island Spirit", ITY:"ITA Airways", ITK:"Interlink Airlines",
   ITX:"Imair Airlines", IWA:"Apache Air", IWD:"Iberworld", IXO:"OCEAN AIR CARGO", IYE:"Yemenia",
   JAA:"Japan Asia Airways", JAB:"Air Bagan", JAF:"Jetairfly", JAI:"Jet Airways", JAL:"Japan Airlines Domestic",
   JAS:"Japan Air System", JAZ:"JALways", JBA:"Helijet", JBU:"JetBlue Airways", JEF:"Jetflite",
