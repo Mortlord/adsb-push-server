@@ -65,7 +65,7 @@ const AIRLINE_NAMES = {
   AUL:"Aeroflot-Nord", AUR:"Aurigny Air Services", AUT:"Austral Lineas Aereas", AVA:"Avianca - Aerovias Nacionales de Colombia", AVN:"Air Vanuatu",
   AWA:"Asia Wings", AWE:"America West Airlines", AWH:"Aerowest", AWI:"Air Wisconsin", AWM:"Asian Wings Airways", AWQ:"Indonesia AirAsia",
   AWU:"Aeroline GmbH", AWW:"Air Wales", AXB:"Air India Express", AXC:"Indochina Airlines", AXE:"Air Explore",
-  AXL:"Air Exel", AXM:"AirAsia", AXY:"AirX Charter", AXZ:"Aereonautica militare", AYZ:"Atlant-Soyuz Airlines", AZA:"Alitalia",
+  AXL:"Air Exel", AXM:"AirAsia", AXY:"AirX Charter", AXZ:"Aereonautica militare", AYZ:"Atlant-Soyuz Airlines", AZA:"Alitalia", AZE:"Arcus-Air",
   AZN:"Amaszonas", AZU:"Azul", AZW:"Air Zimbabwe", BAG:"dba", BAW:"British Airways",
   BBC:"Biman Bangladesh Airlines", BBG:"Bluebird Airways (BZ)", BBO:"Flybaboo", BBR:"Santa Barbara Airlines", BCC:"BusinessAir",
   BCI:"Blue Islands", BCN:"Ocean Air", BCS:"Brussels Airlines", BCY:"CityJet", BEE:"Flybe", BEL:"Brussels Airlines",
