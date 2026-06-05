@@ -437,6 +437,10 @@ async function doPoll() {
         if (!unknownCallsigns[prefix]) unknownCallsigns[prefix] = [];
         if (!unknownCallsigns[prefix].includes(callsign))
           unknownCallsigns[prefix].push(callsign);
+        // Bekannte Prefixe bereinigen
+        for (const p of Object.keys(unknownCallsigns)) {
+          if (AIRLINE_NAMES[p]) delete unknownCallsigns[p];
+        }
         saveJSON(UNKNOWN_FILE, unknownCallsigns);
       }
     }
