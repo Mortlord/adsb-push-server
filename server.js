@@ -371,6 +371,7 @@ function buildHeimReport(refDate) {
 // ── Polling-Logik ──────────────────────────────────────────────
 
 let lastSummaryDate = '';
+let lastResetDate   = '';
 
 async function doPoll() {
   const now      = Date.now();
@@ -379,6 +380,14 @@ async function doPoll() {
   const minute   = parseInt(nowDE.split(':')[1]);
   const todayStr = new Date().toLocaleDateString('de-DE',   { timeZone: 'Europe/Berlin' });
   const timeStr  = new Date().toLocaleTimeString('de-DE',   { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' });
+
+  // Nacht-Reset um 0:00 -- visitStats leeren
+  if (hour === 0 && minute <= 2 && lastResetDate !== todayStr) {
+    lastResetDate = todayStr;
+    visitStats = {};
+    saveJSON(STATS_FILE, visitStats);
+    console.log('visitStats reset at midnight');
+  }
 
   // Tagesübersicht um 07:55 -- letzte 24 Stunden
   if (hour === 7 && minute >= 55 && minute <= 59 && lastSummaryDate !== todayStr) {
