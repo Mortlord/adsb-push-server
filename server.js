@@ -424,7 +424,8 @@ async function doPoll() {
       if (haversine(HOME_LAT, HOME_LON, ac.lat, ac.lon) > HOME_RADIUS) continue;
       const prefix = callsign.replace(/[0-9]/g, '').substring(0, 3).toUpperCase();
       if (prefix.length < 2) continue;
-      if (!/\d/.test(callsign)) continue; // kein Linienflug -- private Maschine ausschließen
+      if (!/\d/.test(callsign)) continue;           // keine Ziffern = Privatmaschine
+      if (/^N\d/.test(callsign)) continue;           // US-Register (N358MM etc.)
       const homeKey = `home:${callsign}`;
       if (now - (notifiedCache[homeKey] || 0) < COOLDOWN_MS) continue;
       notifiedCache[homeKey] = now;
