@@ -89,7 +89,7 @@ const AIRLINE_NAMES = {
   CMA:"CMG Air Cargo", CMP:"Copa Airlines", CNF:"Canaryfly", CNO:"SAS Braathens", COA:"Continental Airlines", COE:"Comtel Air",
   COM:"Comair", CPA:"Cathay Pacific", CPN:"Caspian Airlines", CPZ:"Compass Airlines", CQH:"Spring Airlines",
   CQN:"Chongqing Airlines", CRK:"Hong Kong Airlines", CRL:"Corsairfly", CRO:"Crown Airways", CSA:"Czech Airlines",
-  CSC:"Sichuan Airlines", CSH:"Shanghai Airlines", CSN:"China Southern Airlines", CSX:"Choice Airways", CSZ:"Shenzhen Airlines",
+  CSC:"Sichuan Airlines", CSH:"Shanghai Airlines", CSN:"China Southern Airlines", CSW:"Chair Airlines", CSX:"Choice Airways", CSZ:"Shenzhen Airlines",
   CTN:"Croatia Airlines", CUA:"China United Airlines", CUB:"Cubana de Aviación", CUD:"Air Cudlua", CVA:"Air Chathams",
   CWK:"Comores Airlines", CWM:"Air Marshall Islands", CXA:"Xiamen Airlines", CYD:"Access Air", CYH:"Yunnan Airlines",
   CYP:"Cyprus Airways", CZV:"Via Conectia Airlines", DAH:"Air Algerie", DAK:"First Flying", DAL:"Delta Air Lines",
