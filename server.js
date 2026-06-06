@@ -149,7 +149,7 @@ const AIRLINE_NAMES = {
   KDA:"Kendell Airlines", KEA:"Korea Express Air", KEN:"Kenmore Air", KFR:"Kingfisher Airlines", KGL:"Kogalymavia Air Company",
   KGO:"Korongo Airlines", KHB:"Dalavia", KHK:"Kharkiv Airlines", KIL:"Kuban Airlines", KIN:"Kinloss Flying Training Unit",
   KIS:"Contact Air", KJC:"Krasnojarsky Airlines", KKK:"Atlasjet", KLC:"KLM Cityhopper", KLM:"KLM Royal Dutch Airlines",
-  KLS:"Kal Star Aviation", KMF:"Kam Air", KND:"Kan Air", KNE:"Nas Air", KNI:"KD Avia",
+  KLS:"Kal Star Aviation", KMF:"Kam Air", KMM:"KM Malta Airlines", KND:"Kan Air", KNE:"Nas Air", KNI:"KD Avia",
   KOL:"SOCHI AIR", KOQ:"Kostromskie avialinii", KOR:"Air Koryo", KQA:"Kenya Airways", KRP:"Carpatair",
   KRY:"Russkie Krylya", KSM:"Kosmos", KSY:"KSY", KSZ:"Sunrise Airways", KUH:"Kush Air",
   KYA:"Alghanim", KZK:"Air Kazakhstan", KZR:"Air Astana", KZU:"Kuzu Airlines Cargo", LAA:"Libyan Arab Airlines",
