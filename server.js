@@ -152,7 +152,7 @@ const AIRLINE_NAMES = {
   KYA:"Alghanim", KZK:"Air Kazakhstan", KZR:"Air Astana", KZU:"Kuzu Airlines Cargo", LAA:"Libyan Arab Airlines",
   LAJ:"British Mediterranean Airways", LAM:"Linhas A", LAN:"LAN Airlines", LAO:"Lao Airlines", LAP:"TAM Mercosur",
   LAV:"AlbaStar", LBC:"Albanian Airlines", LBL:"Line Blue", LBT:"Nouvel Air Tunisie", LDA:"Lauda Air",
-  LFA:"Air Alfa", LGL:"Luxair", LGW:"Luftfahrtgesellschaft Walter", LHN:"Express One International", LXH:"Lufthansa City Airlines", LIA:"Leeward Islands Air Transport",
+  LFA:"Air Alfa", LGL:"Luxair", LGW:"Luftfahrtgesellschaft Walter", LHN:"Express One International", LHX:"Lufthansa City Airlines", LIA:"Leeward Islands Air Transport",
   LIL:"FlyLal", LIX:"LionXpress", LJJ:"Luchsh Airlines ", LLC:"FlyLAL Charters", LLM:"Yamal Airlines",
   LMM:"LCM AIRLINES", LMU:"AlMasria Universal Airlines", LNE:"Aerolane", LNI:"Lion Mentari Airlines", LOC:"Locair",
   LOF:"Trans States Airlines", LOO:"LSM Airlines", LOT:"LOT Polish Airlines", LPE:"LAN Peru", LPR:"L",
