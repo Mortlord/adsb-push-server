@@ -58,7 +58,7 @@ const AIRLINE_NAMES = {
   AKL:"Air Kiribati", ALK:"SriLankan Airlines", ALO:"Allegheny Commuter Airlines", AMC:"Air Malta", AML:"Air Malawi",
   AMT:"ATA Airlines", AMU:"Air Macau", AMV:"AMC Airlines", AMX:"AeroMéxico", ANA:"All Nippon Airways",
   ANE:"Air Nostrum", ANG:"Air Niugini", ANK:"Air Nippon", ANO:"Airnorth", ANT:"Air North Charter - Canada",
-  ANU:"Andalus Lineas Aereas", ANZ:"Air New Zealand", APW:"Arrow Air", ARD:"Aerocondor", ARE:"Aires",
+  ANU:"Andalus Lineas Aereas", ANZ:"Air New Zealand", AOJ:"Avcon Jet", APW:"Arrow Air", ARD:"Aerocondor", ARE:"Aires",
   ARF:"Aero Flight", ARG:"Aerolineas Argentinas", ARU:"Aruba Airlines", ASA:"Alaska Airlines", ASD:"Air Sinai",
   ASH:"Mesa Airlines", ASL:"Air Serbia", ASQ:"Atlantic Southeast Airlines", ASZ:"Astrakhan Airlines", ATC:"Air Tanzania",
   ATM:"Airlines Of Tasmania", AUA:"Austrian Airlines", AUB:"Augsburg Airways", AUH:"Abu Dhabi Amiri Flight", AUI:"Ukraine International Airlines",
