@@ -463,6 +463,13 @@ async function doPoll() {
   // Alle Flugzeuge im Alert-Radius zählen (unabhängig von Favoriten)
   for (const [chatId, state] of Object.entries(userState)) {
     if (!state.lat) continue;
+
+    // Zeitzone des Nutzers prüfen statt global Europe/Berlin
+    const userTz = state.timezone || 'Europe/Berlin';
+    const userTimeStr = new Date().toLocaleString('de-DE', { timeZone: userTz, hour: 'numeric', minute: 'numeric', hour12: false });
+    const userHour = parseInt(userTimeStr.split(':')[0]);
+    if (userHour < 8) continue; // Nachts keine Benachrichtigungen in der Nutzer-Zeitzone
+
     try {
       const data     = await fetchAircraft(state.lat, state.lon, state.radius);
       const aircraft = data.ac || [];
@@ -520,12 +527,30 @@ async function doPoll() {
 
 // App schickt Standort + Favoriten
 app.post('/update', (req, res) => {
-  const { chat_id, lat, lon, radius, favorites, alert_radius } = req.body;
+  const { chat_id, lat, lon, radius, favorites, alert_radius, timezone } = req.body;
   if (!chat_id) return res.json({ ok: false });
-  userState[chat_id] = { lat, lon, radius, favorites: favorites || [], alert_radius: alert_radius || 20, lastSeen: Date.now() };
+  userState[chat_id] = { lat, lon, radius, favorites: favorites || [], alert_radius: alert_radius || 20, timezone: timezone || 'Europe/Berlin', lastSeen: Date.now() };
   saveJSON(STATE_FILE, userState);
   console.log(`Updated [${chat_id}]: favorites=${favorites}, alert=${alert_radius}`);
   res.json({ ok: true });
+});
+
+// Nutzer-Daten löschen (DSGVO Art. 17)
+app.delete('/delete', (req, res) => {
+  const { chat_id } = req.body;
+  if (!chat_id) return res.json({ ok: false, error: 'chat_id required' });
+  let deleted = false;
+  if (userState[chat_id])     { delete userState[chat_id];     saveJSON(STATE_FILE,   userState);   deleted = true; }
+  if (history[chat_id])       { delete history[chat_id];       saveJSON(HISTORY_FILE, history);               }
+  if (notifiedCache[chat_id]) { delete notifiedCache[chat_id]; saveJSON(CACHE_FILE,   notifiedCache);         }
+  if (visitStats[chat_id])    { delete visitStats[chat_id];    saveJSON(STATS_FILE,   visitStats);            }
+  // Cache-Einträge mit chatId-Prefix entfernen
+  for (const key of Object.keys(notifiedCache)) {
+    if (key.startsWith(`${chat_id}:`)) delete notifiedCache[key];
+  }
+  saveJSON(CACHE_FILE, notifiedCache);
+  console.log(`Deleted data for ${chat_id}`);
+  res.json({ ok: true, deleted });
 });
 
 // Cron-Job triggert Poll
@@ -561,6 +586,24 @@ app.post('/telegram-webhook', async (req, res) => {
   if (!msg) return res.json({ ok: true });
   const chatId = String(msg.chat?.id);
   const text   = msg.text || '';
+
+  if (text === '/start') {
+    const welcomeText = `✈ <b>Willkommen bei ADSB Radar!</b>
+
+Deine Chat-ID: <code>${chatId}</code>
+
+Trage diese Zahl in der App unter ⭐ FAVORITEN ein, um Benachrichtigungen zu aktivieren.
+
+<b>So geht's:</b>
+1. Öffne <a href="https://adsb-radar.de">adsb-radar.de</a>
+2. Tippe auf ⭐ FAVORITEN
+3. Füge Callsigns oder Prefixe hinzu (z.B. <b>LH</b> für alle Lufthansa-Flüge)
+4. Trage deine Chat-ID ein und tippe auf Speichern
+
+Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:59 Uhr).`;
+    await sendTelegramMessage(chatId, welcomeText);
+    return res.json({ ok: true });
+  }
 
   if (text.startsWith('/stats')) {
     const stats = visitStats[chatId];
