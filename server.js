@@ -28,6 +28,7 @@ function saveJSON(file, data) {
 const STATS_FILE      = '/data/visitstats.json';
 const HOME_STATS_FILE = '/data/homestats.json';
 const UNKNOWN_FILE    = '/data/unknowncallsigns.json';
+const HB_FILE         = '/data/hbcallsigns.json';
 
 // Heimadresse fix: Ziegelweg 11, 79100 Freiburg
 const HOME_LAT    = 47.9732;
@@ -42,6 +43,8 @@ let visitStats    = loadJSON(STATS_FILE,   {}); // { chatId: { callsign: count }
 let homeStats         = loadJSON(HOME_STATS_FILE, {});
 // unknownCallsigns: { PREFIX: [callsign, ...] }
 let unknownCallsigns  = loadJSON(UNKNOWN_FILE, {});
+// hbCallsigns: [callsign, ...] -- Schweizer Privatregister
+let hbCallsigns       = loadJSON(HB_FILE, []);
 
 // ICAO-Prefix -> Klarname
 const AIRLINE_NAMES = {
@@ -426,6 +429,15 @@ async function doPoll() {
       if (prefix.length < 2) continue;
       if (!/\d/.test(callsign)) continue;           // keine Ziffern = Privatmaschine
       if (/^N\d/.test(callsign)) continue;           // US-Register (N358MM etc.)
+
+      // HB-Register (Schweizer Privatmaschinen) separat erfassen und ausschließen
+      if (/^HB\d/.test(callsign)) {
+        if (!hbCallsigns.includes(callsign)) {
+          hbCallsigns.push(callsign);
+          saveJSON(HB_FILE, hbCallsigns);
+        }
+        continue;
+      }
       const homeKey = `home:${callsign}`;
       if (now - (notifiedCache[homeKey] || 0) < COOLDOWN_MS) continue;
       notifiedCache[homeKey] = now;
@@ -603,6 +615,35 @@ app.post('/telegram-webhook', async (req, res) => {
     } catch(e) {
       await sendTelegramMessage(chatId, 'Fehler beim Erstellen des Berichts.');
       console.error('unbekannt error:', e.message);
+    }
+    return res.json({ ok: true });
+  }
+
+  if (text.startsWith('/validatehb') || text.startsWith('/validateHB')) {
+    try {
+      if (!hbCallsigns.length) {
+        await sendTelegramMessage(chatId, 'Keine HB-Callsigns aufgezeichnet.');
+        return res.json({ ok: true });
+      }
+      const sorted = [...hbCallsigns].sort();
+      let reply = `<b>🇨🇭 HB-Register (Schweizer Privatmaschinen)</b>\n${sorted.length} Einträge\n\n`;
+      reply += sorted.join(', ');
+      await sendTelegramMessage(chatId, reply);
+    } catch(e) {
+      await sendTelegramMessage(chatId, 'Fehler.');
+      console.error('validateHB error:', e.message);
+    }
+    return res.json({ ok: true });
+  }
+
+  if (text.startsWith('/deleteunbekannt')) {
+    try {
+      unknownCallsigns = {};
+      saveJSON(UNKNOWN_FILE, unknownCallsigns);
+      await sendTelegramMessage(chatId, '✅ Unbekannte Callsign-Liste geleert.');
+    } catch(e) {
+      await sendTelegramMessage(chatId, 'Fehler.');
+      console.error('deleteunbekannt error:', e.message);
     }
     return res.json({ ok: true });
   }
