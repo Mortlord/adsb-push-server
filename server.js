@@ -749,5 +749,9 @@ app.get('/status', (req, res) => {
   res.json({ status: 'ok', users: Object.keys(userState).length });
 });
 
+app.get('/airlines', (req, res) => {
+  res.json(AIRLINE_NAMES);
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`Server running on port ${port}`));
