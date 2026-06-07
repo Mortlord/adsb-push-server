@@ -343,15 +343,23 @@ function buildHeimReport(refDate) {
 
   function sumDays(dayList) {
     const totals = {};
-    for (const day of dayList)
-      for (const [p, c] of Object.entries(homeStats[day] || {}))
+    const allCallsigns = new Set();
+    for (const day of dayList) {
+      for (const [p, c] of Object.entries(homeStats[day] || {})) {
+        if (p === '_callsigns') { c.forEach(cs => allCallsigns.add(cs)); continue; }
         totals[p] = (totals[p] || 0) + c;
+      }
+    }
+    totals._uniqueTotal = allCallsigns.size;
     return totals;
   }
   function fmtTable(totals, label) {
-    const rows = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 15);
+    const uniqueTotal = totals._uniqueTotal;
+    const rows = Object.entries(totals).filter(([p]) => p !== '_uniqueTotal').sort((a, b) => b[1] - a[1]).slice(0, 15);
     if (!rows.length) return `<b>${label}</b>\n  (keine Daten)\n`;
-    let s = `<b>${label}</b>\n`;
+    let s = `<b>${label}</b>`;
+    if (uniqueTotal != null) s += ` – ${uniqueTotal} unique Callsigns`;
+    s += `\n`;
     rows.forEach(([p, c]) => {
       const name = AIRLINE_NAMES[p] || '';
       s += `  <b>${p}</b>${name ? ' ' + name : ''}: ${c}x\n`;
@@ -364,7 +372,10 @@ function buildHeimReport(refDate) {
   const monthDays = daysRange(monthStart, nowMs);
 
   let report = `<b>🏠 Heimradar Freiburg – Callsign-Gruppen (20nm)</b>\n\n`;
-  report += fmtTable(homeStats[ydayStr] || {}, `Gestern (${ydayStr})`);
+  const ydayData = homeStats[ydayStr] || {};
+  const ydayUnique = (ydayData._callsigns || []).length;
+  const ydayTotals = Object.assign({}, ydayData, { _uniqueTotal: ydayUnique || null });
+  report += fmtTable(ydayTotals, `Gestern (${ydayStr})`);
   report += '\n';
   report += fmtTable(sumDays(weekDays),  'Laufende Woche (Mo-So, inkl. heute)');
   report += '\n';
@@ -444,6 +455,9 @@ async function doPoll() {
       notifiedCache[homeKey] = now;
       if (!homeStats[todayStr]) homeStats[todayStr] = {};
       homeStats[todayStr][prefix] = (homeStats[todayStr][prefix] || 0) + 1;
+      if (!homeStats[todayStr]._callsigns) homeStats[todayStr]._callsigns = [];
+      if (!homeStats[todayStr]._callsigns.includes(callsign))
+        homeStats[todayStr]._callsigns.push(callsign);
 
       // Unbekannte Prefixe mit vollständigem Callsign aufzeichnen
       if (!AIRLINE_NAMES[prefix]) {
