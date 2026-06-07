@@ -229,7 +229,7 @@ const AIRLINE_NAMES = {
   TDK:"Transavia Denmark", TEZ:"Tez Jet Airlines", TFL:"Arkefly", TFN:"Norwegian Aviation College", TGN:"Trigana Air Service",
   TGW:"Tiger Airways Australia", TGZ:"Georgian Airways", THA:"Thai Airways International", THI:"TransHolding", THK:"Turk Hava Kurumu Hava Taksi Isletmesi",
   THS:"TransBrasil Airlines", THT:"Air Tahiti Nui", THY:"Turkish Airlines", TIB:"TRIP Linhas A", TIL:"Tajikistan International Airlines",
-  TJA:"T.J. Air", TJT:"Twin Jet", TKJ:"AJet", TKS:"Tomsk-Avia", TLA:"Translift Airways", TMA:"Trans Mediterranean Airlines",
+  TJA:"T.J. Air", TJD:"Aliserio", TJT:"Twin Jet", TKJ:"AJet", TKS:"Tomsk-Avia", TLA:"Translift Airways", TMA:"Trans Mediterranean Airlines",
   TNA:"TransAsia Airways", TNM:"Tiara Air", TNS:"Transilvania", TNU:"TransNusa Air", TOK:"Airlines PNG",
   TOM:"TUI Airways", TOS:"Tropic Air", TPA:"TAMPA", TRA:"Transavia Holland", TRK:"Turkuaz Airlines",
   TRS:"AirTran Airways", TSC:"Air Transat", TSO:"Transaero Airlines", TTZ:"Transair", TUA:"Turkmenistan Airlines",
