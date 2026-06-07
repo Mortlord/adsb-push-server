@@ -43,6 +43,7 @@ let visitStats    = loadJSON(STATS_FILE,   {}); // { chatId: { callsign: count }
 let homeStats         = loadJSON(HOME_STATS_FILE, {});
 // unknownCallsigns: { PREFIX: [callsign, ...] }
 let unknownCallsigns  = loadJSON(UNKNOWN_FILE, {});
+let lastUnbekannтPrefixes = new Set(); // Prefixe, die beim letzten /unbekannt-Aufruf bekannt waren
 // hbCallsigns: [callsign, ...] -- Schweizer Privatregister
 let hbCallsigns       = loadJSON(HB_FILE, []);
 
@@ -656,11 +657,14 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
         return res.json({ ok: true });
       }
       const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+      const isFirstCall = lastUnbekannтPrefixes.size === 0;
       let reply = `<b>❓ Unbekannte Callsign-Gruppen</b>\n\n`;
       sorted.forEach(([p, c]) => {
         const examples = (unknownCallsigns[p] || []).slice(0, 3).join(', ');
-        reply += `<b>${p}</b>: ${c}x${examples ? ' – z.B. ' + examples : ''}\n`;
+        const isNew = !isFirstCall && !lastUnbekannтPrefixes.has(p);
+        reply += `${isNew ? '🆕 ' : ''}<b>${p}</b>: ${c}x${examples ? ' – z.B. ' + examples : ''}\n`;
       });
+      lastUnbekannтPrefixes = new Set(Object.keys(totals));
       await sendTelegramMessage(chatId, reply);
     } catch(e) {
       await sendTelegramMessage(chatId, 'Fehler beim Erstellen des Berichts.');
