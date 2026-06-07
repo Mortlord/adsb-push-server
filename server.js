@@ -105,7 +105,7 @@ const AIRLINE_NAMES = {
   DWA:"Dense Airways",  DWT:"Darwin Airline", DWW:"DAS Private Jets", DYA:"Dynamic Airways", EAA:"Eastok Avia", EAL:"European Air Express",
   EAV:"Eastern Atlantic Virtual Airlines", ECA:"Eurocypria Airlines", ECU:"Ecuavia", EDW:"Edelweiss Air", EEA:"Empresa Ecuatoriana De Aviacion",
   EEU:"Eurofly Service", EFA:"Far Eastern Air Transport", EFW:"British Airways", EFY:"EasyFly", EGF:"American Eagle Airlines", EGH:"BBN-Airways",
-  EGS:"Eagles Airlines", EHN:"East Horizon", EIA:"Evergreen International Airlines", EIN:"Aer Lingus", EJA:"NetJets", EJU:"easyJet Europe",
+  EGS:"Eagles Airlines", EGT:"EGT Jet", EHN:"East Horizon", EIA:"Evergreen International Airlines", EIN:"Aer Lingus", EJA:"NetJets", EJU:"easyJet Europe",
   ELA:"Eastland Air", ELC:"Small Planet Airlines", ELK:"ELK Airways", ELL:"Estonian Air", ELO:"Eurolot",
   ELY:"El Al Israel Airlines", ENJ:"Enerjet", ENT:"Enter Air", ENY:"Envoy Air", ENZ:"Jota Aviation", ERO:"Sun D'Or",
   ERR:"Era Alaska", ERT:"Eritrean Airlines", ESK:"SkyEurope", ESR:"Eastar Jet", ETD:"Etihad Airways",
