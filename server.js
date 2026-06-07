@@ -468,7 +468,7 @@ async function doPoll() {
     const userTz = state.timezone || 'Europe/Berlin';
     const userTimeStr = new Date().toLocaleString('de-DE', { timeZone: userTz, hour: 'numeric', minute: 'numeric', hour12: false });
     const userHour = parseInt(userTimeStr.split(':')[0]);
-    if (userHour < 8) continue; // Nachts keine Benachrichtigungen in der Nutzer-Zeitzone
+    const isNight = userHour < 8; // Nachts keine Telegram-Alerts, aber History/Stats laufen weiter
 
     try {
       const data     = await fetchAircraft(state.lat, state.lon, state.radius);
@@ -505,8 +505,8 @@ async function doPoll() {
         if (now - (notifiedCache[key] || 0) < COOLDOWN_MS) continue;
 
         const dir  = bearing(state.lat, state.lon, ac.lat, ac.lon);
-        const text = `✈ <b>${callsign}</b> ist in deinem Radar!\n${dist.toFixed(1)} nm ${dir}`;
-        await sendTelegramMessage(chatId, text);
+
+        // History und Cache immer schreiben (auch nachts)
         notifiedCache[key] = now;
         saveJSON(CACHE_FILE, notifiedCache);
 
@@ -515,7 +515,14 @@ async function doPoll() {
         if (history[chatId].length > 100) history[chatId] = history[chatId].slice(-100);
         saveJSON(HISTORY_FILE, history);
 
-        console.log(`Telegram sent to ${chatId}: ${callsign} ${dist.toFixed(1)} nm ${dir}`);
+        // Telegram-Alert nur tagsüber (08:00–23:59)
+        if (!isNight) {
+          const text = `✈ <b>${callsign}</b> ist in deinem Radar!\n${dist.toFixed(1)} nm ${dir}`;
+          await sendTelegramMessage(chatId, text);
+          console.log(`Telegram sent to ${chatId}: ${callsign} ${dist.toFixed(1)} nm ${dir}`);
+        } else {
+          console.log(`Nacht-Unterdrückung für ${chatId}: ${callsign} ${dist.toFixed(1)} nm ${dir} (kein Alert)`);
+        }
       }
     } catch(e) { console.error(`Poll error for ${chatId}: ${e.message}`); }
   }
