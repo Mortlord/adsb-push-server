@@ -250,7 +250,7 @@ const AIRLINE_NAMES = {
   VUN:"Air Ivoire", VVC:"VivaColombia", VVM:"Viva Macau", VVN:"88", VWA:"Virginwings",
   WAJ:"AirAsia Japan", WAL:"Western Airlines", WAU:"Wizz Air Ukraine", WBA:"Finncomm Airlines", WCG:"Warsaw Cargo", WEB:"WebJet Linhas A",
   WEN:"WestJet Encore", WER:"AeroWorld ", WFX:"Westfalia Express VA", WIF:"Widerøe", WJA:"WestJet",
-  WLC:"Welcome Air", WOA:"World Airways", WON:"Wings Air", WOW:"Air Southwest", WRC:"Wind Rose Aviation",
+  WLC:"Welcome Air", WMT:"WizzAir Malta", WOA:"World Airways", WON:"Wings Air", WOW:"Air Southwest", WRC:"Wind Rose Aviation",
   WSS:"World Scale Airlines", WTA:"Africa West", WTJ:"Whitejets", WUK:"Wizz Air UK", WVL:"Wizz Air Hungary", WMT:"Wizz Air Malta", WZZ:"Wizz Air",
   XAN:"Southjet cargo", XAU:"XAIR USA", XAX:"AirAsia X", XBM:"CBM America", XEL:"Excel Charter",
   XLA:"Excel Airways", XOJ:"XOJET", XPT:"XPTO", XSR:"Executive AirShare", YCC:"Ciel Canadien",
