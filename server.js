@@ -663,6 +663,7 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
       const totals = {};
       for (const dayData of Object.values(homeStats)) {
         for (const [p, c] of Object.entries(dayData)) {
+          if (p === '_callsigns') continue;
           if (!AIRLINE_NAMES[p]) totals[p] = (totals[p] || 0) + c;
         }
       }
