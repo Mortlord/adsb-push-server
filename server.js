@@ -111,7 +111,7 @@ const AIRLINE_NAMES = {
   ERR:"Era Alaska", ERT:"Eritrean Airlines", ESK:"SkyEurope", ESR:"Eastar Jet", ETD:"Etihad Airways",
   ETH:"Ethiopian Airlines", EUD:"Air Italy Egypt", EUV:"EuropeSky", EVA:"EVA Air", EVC:"Comfort Express Virtual Charters Albany",
   EWG:"Eurowings", EXS:"Jet2.com", EZA:"Eznis Airways", EZE:"Eastern Airways", EZS:"easyJet Switzerland", EZY:"easyJet",
-  FAB:"First Air", FBL:"Fly Brasil", FBU:"Frenchbee", FCA:"First Choice Airways", FCB:"COBALT", FCM:"Flybe Finland Oy",
+  FAB:"First Air", FAF:"France Airforce", FBL:"Fly Brasil", FBU:"Frenchbee", FCA:"First Choice Airways", FCB:"COBALT", FCM:"Flybe Finland Oy",
   FDB:"Fly Dubai", FDD:"Feeder Airlines", FDX:"FedEx", FEG:"FlyEgypt", FFM:"Firefly", FFT:"Frontier Airlines",
   FFV:"Fly540", FHE:"Hello", FHI:"FlyHigh Airlines Ireland (FH)", FHM:"Freebird Airlines Europe", FIF:"Air Finland", FIF:"Air Finland", FIN:"Finnair",
   FIX:"Airfix Aviation", FJI:"Air Pacific", FJM:"Fly Jamaica Airways", FJO:"FlexJet", FKA:"Flying kangaroo Airline", FLB:"German Air Force - FLB",
