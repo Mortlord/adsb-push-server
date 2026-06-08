@@ -291,12 +291,16 @@ function sendTelegramMessage(chatId, text) {
 
 function fetchAircraft(lat, lon, radius) {
   return new Promise((resolve, reject) => {
-    https.get(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`,
+    const req = https.get(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`,
       { headers: { 'User-Agent': 'adsb-radar/2.0' } }, res => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
-    }).on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => {
+      req.destroy(new Error('fetchAircraft timeout'));
+    });
   });
 }
 
