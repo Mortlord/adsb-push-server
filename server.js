@@ -399,7 +399,7 @@ async function doPoll() {
   }
 
   // Abendbericht um 23:59 -- Tagesrückblick + Aufräumen
-  if (hour === 23 && minute >= 59 && lastSummaryDate !== todayStr) {
+  if (hour === 23 && minute >= 55 && lastSummaryDate !== todayStr) {
     lastSummaryDate = todayStr;
 
     // Bericht an alle bekannten Chat-IDs
