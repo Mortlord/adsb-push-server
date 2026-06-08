@@ -12,5 +12,5 @@ https.get(`https://${SERVER}/poll`, res => {
   });
 }).on('error', e => {
   console.error('Error:', e.message);
-  process.exit(1);
+  process.exit(0); // Kein Crash -- Timeout ist kein fataler Fehler
 });
