@@ -142,7 +142,7 @@ const AIRLINE_NAMES = {
   ITX:"Imair Airlines", IWA:"Apache Air", IWD:"Iberworld", IXO:"OCEAN AIR CARGO", IYE:"Yemenia",
   JAA:"Japan Asia Airways", JAB:"Air Bagan", JAF:"Jetairfly", JAI:"Jet Airways", JAL:"Japan Airlines Domestic",
   JAS:"Japan Air System", JAZ:"JALways", JBA:"Helijet", JBU:"JetBlue Airways", JEF:"Jetflite",
-  JET:"Wind Jet", JEX:"JAL Express", JFA:"JetFly", JFU:"Jet4You", JGN:"Jagson Airlines", JJA:"Jeju Air",
+  JET:"Wind Jet", JEX:"JAL Express", JFA:"JetFly", JFL:"JetFly", JFU:"Jet4You", JGN:"Jagson Airlines", JJA:"Jeju Air",
   JJP:"Jetstar Japan ", JKK:"Spanair", JNA:"Jin Air", JOR:"Blue Air", JOY:"Joy Air",
   JPU:"Jupiter Airlines", JRB:"Jc royal.britannica", JSA:"Jetstar Asia Airways", JSF:"Jet Stream Chater", JSR:"Jusur airways", JST:"Jetstar Airways",
   JTA:"Japan Transocean Air", JTO:"Jettor Airlines", JZA:"Air Canada Jazz", JZR:"Jazeera Airways", KAC:"Kuwait Airways",
