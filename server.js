@@ -325,41 +325,47 @@ function bearing(lat1, lon1, lat2, lon2) {
 
 // ── Abend-Bericht generieren ──────────────────────────────────
 
+const OWNER_CHAT_ID = '8991828124';
+
 function buildEveningReport(todayStr, chatId) {
-  // Teil 1: Heimradar Callsign-Gruppen
-  const dayData = homeStats[todayStr] || {};
-  const uniqueHome = (dayData._callsigns || []).length;
-  const rows = Object.entries(dayData)
-    .filter(([p]) => p !== '_callsigns')
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 15);
+  let report = '';
 
-  let report = `<b>🏠 Heimradar Freiburg – ${todayStr}</b> – ${uniqueHome} unique Callsigns\n\n`;
-  if (rows.length) {
-    rows.forEach(([p, c]) => {
-      const name = AIRLINE_NAMES[p] || '';
-      report += `  <b>${p}</b>${name ? ' ' + name : ''}: ${c}x\n`;
-    });
-  } else {
-    report += '  (keine Daten)\n';
+  // Heimradar + Unbekannte nur für den Betreiber
+  if (chatId === OWNER_CHAT_ID) {
+    const dayData = homeStats[todayStr] || {};
+    const uniqueHome = (dayData._callsigns || []).length;
+    const rows = Object.entries(dayData)
+      .filter(([p]) => p !== '_callsigns')
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15);
+
+    report += `<b>🏠 Heimradar Freiburg – ${todayStr}</b> – ${uniqueHome} unique Callsigns\n\n`;
+    if (rows.length) {
+      rows.forEach(([p, c]) => {
+        const name = AIRLINE_NAMES[p] || '';
+        report += `  <b>${p}</b>${name ? ' ' + name : ''}: ${c}x\n`;
+      });
+    } else {
+      report += '  (keine Daten)\n';
+    }
+
+    const unknownToday = Object.entries(dayData)
+      .filter(([p]) => p !== '_callsigns' && !AIRLINE_NAMES[p])
+      .sort((a, b) => b[1] - a[1]);
+    if (unknownToday.length) {
+      report += `\n<b>❓ Unbekannte Gruppen heute</b>\n`;
+      unknownToday.forEach(([p, c]) => {
+        const examples = (unknownCallsigns[p] || []).slice(0, 3).join(', ');
+        report += `  <b>${p}</b>: ${c}x${examples ? ' – z.B. ' + examples : ''}\n`;
+      });
+    }
+    report += '\n';
   }
 
-  // Teil 2: Unbekannte Gruppen des Tages
-  const unknownToday = Object.entries(dayData)
-    .filter(([p]) => p !== '_callsigns' && !AIRLINE_NAMES[p])
-    .sort((a, b) => b[1] - a[1]);
-  if (unknownToday.length) {
-    report += `\n<b>❓ Unbekannte Gruppen heute</b>\n`;
-    unknownToday.forEach(([p, c]) => {
-      const examples = (unknownCallsigns[p] || []).slice(0, 3).join(', ');
-      report += `  <b>${p}</b>: ${c}x${examples ? ' – z.B. ' + examples : ''}\n`;
-    });
-  }
-
-  // Teil 3: Favoriten des Tages
+  // Favoriten für alle
   const favEntries = (history[chatId] || []).filter(e => e.date === todayStr);
   const uniqueFavs = [...new Map(favEntries.map(e => [e.callsign, e])).values()];
-  report += `\n<b>⭐ Favoriten heute</b> – ${uniqueFavs.length} unique Callsigns\n`;
+  report += `<b>⭐ Favoriten heute</b> – ${uniqueFavs.length} unique Callsigns\n`;
   if (uniqueFavs.length) {
     uniqueFavs.forEach(e => {
       report += `  <b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`;
