@@ -158,7 +158,7 @@ const AIRLINE_NAMES = {
   LAV:"AlbaStar", LBC:"Albanian Airlines", LBL:"Line Blue", LBT:"Nouvel Air Tunisie", LDA:"Lauda Air",
   LFA:"Air Alfa", LGL:"Luxair", LGW:"Luftfahrtgesellschaft Walter", LHN:"Express One International", LHX:"Lufthansa City Airlines", LIA:"Leeward Islands Air Transport",
   LIL:"FlyLal", LIX:"LionXpress", LJJ:"Luchsh Airlines ", LLC:"FlyLAL Charters", LLM:"Yamal Airlines",
-  LMM:"LCM AIRLINES", LMU:"AlMasria Universal Airlines", LNE:"Aerolane", LNI:"Lion Mentari Airlines", LOC:"Locair",
+  LCO:"Latam Cargo", LMM:"LCM AIRLINES", LMU:"AlMasria Universal Airlines", LNE:"Aerolane", LNI:"Lion Mentari Airlines", LOC:"Locair",
   LOF:"Trans States Airlines", LOO:"LSM Airlines", LOT:"LOT Polish Airlines", LPE:"LAN Peru", LPR:"L",
   LRC:"LACSA", LTC:"LatCharter", LTD:"Southern Airways Express", LTE:"LTE International Airways", LTO:"LTU Austria",
   LTR:"Lufttransport", LTU:"Air Lituanica", LTY:"Liberty Airways", LUA:"Luminair", LUR:"Atlantis European Airways", LXJ:"FlexJet", LXP:"LAN Express",
@@ -171,7 +171,7 @@ const AIRLINE_NAMES = {
   MKG:"Air Mekong", MKU:"Island Air (WP)", MLA:"40-Mile Air", MLD:"Air Moldova", MMM:"Myanmar Airways International",
   MNA:"Merpati Nusantara Airlines", MNB:"MNG Airlines", MNE:"Air Montenegro", MNO:"Mango", MNP:"Spirit of Manila Airlines", MON:"Monarch Airlines",
   MOV:"VIM Airlines", MPC:"MPC Air", MPD:"Air Plus Comet", MPE:"Canadian North", MPH:"Martinair", MRS:"Marusya Airways",
-  MSC:"Air Cairo", MSE:"EgyptAir Express", MSI:"Motor Sich", MSR:"Egyptair", MTW:"Mauritania Airways", MVD:"Kavminvodyavia",
+  MSA:"Poste Air Cargo", MSC:"Air Cairo", MSE:"EgyptAir Express", MSI:"Motor Sich", MSR:"Egyptair", MTW:"Mauritania Airways", MVD:"Kavminvodyavia",
   MWA:"Midwest Airlines (Egypt)", MWI:"Malaysia Wings", MXA:"Mexicana de Aviaci", MXD:"Malindo Air", MXI:"MexicanaLink",
   MXL:"Maxair", MYA:"Myflug", MYD:"Maya Island Air", MYP:"Mann Yadanarpon Airlines", MYJ:"My Jet", MYT:"MyTravel Airways",
   NAK:"Arik Niger", NAS:"Nasair", NAX:"Norwegian Air Shuttle", NCF:"Norfolk County Flight College", NCR:"National Air Cargo",
@@ -203,7 +203,7 @@ const AIRLINE_NAMES = {
   RON:"Nauru Air Corporation", ROT:"Tarom", RPA:"Republic Airlines", RPB:"AeroRep", RPH:"Republic Express Airlines",
   RPO:"Rainbow Air Polynesia", RRJ:"AirRussia", RSD:"Russia State Transport", RSH:"Air Sahara", RSI:"Air Sunshine",
   RSJ:"RusJet", RSP:"Jet Suite", RSR:"Aero-Service", RSU:"Aerosur", RSY:"I-Fly",
-  RTE:"Aeronorte", RUE:"Rainbow Air Euro", RUS:"Cirrus Airlines", RWD:"Rwandair Express", RWW:"Fly Europa",
+  RTE:"Aeronorte", RUE:"Rainbow Air Euro", RUK:"Ryanair UK", RUS:"Cirrus Airlines", RWD:"Rwandair Express", RWW:"Fly Europa",
   RWZ:"Red Wings", RXA:"Regional Express", RXR:"REXAIR VIRTUEL", RYA:"Ryan Air Services", RYN:"Ryan International Airlines",
   RYR:"Ryanair", RZO:"SATA International", SAA:"South African Airways", SAE:"SOCHI AIR EXPRESS", SAI:"Shaheen Air International",
   SAL:"Spike Airlines", SAS:"Scandinavian Airlines System", SAT:"SATA Air Acores", SAY:"ScotAirways", SAZ:"Rega Swiss Air-Ambulance", SBD:"Snowbird Airlines",
@@ -220,7 +220,7 @@ const AIRLINE_NAMES = {
   SPM:"Air Saint Pierre", SQC:"Singapore Airlines Cargo", SQH:"SeaPort Airlines", SRB:"Solar Air", SRH:"Siem Reap Airways",
   SRN:"Sprint Air", SRQ:"South East Asian Airlines", SRY:"ViaAir", SSA:"All America US", SSV:"Skyservice Airlines",
   STP:"STP Airways", STU:"Servicios de Transportes A", SUD:"Sudan Airways", SUW:"Interavia Airlines", SVA:"Saudi Arabian Airlines",
-  SVG:"SVG Air", SVR:"Ural Airlines", SWA:"Southwest Airlines", SWD:"Southern Winds Airlines", SWM:"Sky Angkor Airlines (ZA)", SWT:"Swiftair",
+  SVF:"Swedish Air Force", SVG:"SVG Air", SVR:"Ural Airlines", SWA:"Southwest Airlines", SWD:"Southern Winds Airlines", SWM:"Sky Angkor Airlines (ZA)", SWT:"Swiftair",
   SWR:"Swiss International Air Lines", SWU:"Swiss European Air Lines", SWV:"Swe Fly", SXR:"Sky Express", SXS:"SunExpress",
   SYL:"Aircompany Yakutia", SYR:"Syrian Arab Airlines", SYX:"Skywalk Airlines", SZB:"Aerolineas heredas santa maria", SZZ:"SUR Lineas Aereas",
   TAE:"TAME", TAH:"Air Moorea", TAK:"Tatarstan Airlines", TAM:"TAM Brazilian Airlines", TAN:"Zanair",
@@ -323,67 +323,51 @@ function bearing(lat1, lon1, lat2, lon2) {
   return dirs[Math.round(deg / 45) % 8];
 }
 
-// ── Heim-Bericht generieren (wiederverwendbar) ─────────────────
+// ── Abend-Bericht generieren ──────────────────────────────────
 
-function buildHeimReport(refDate) {
-  // refDate = Date-Objekt des Bezugstages (normalerweise gestern)
-  const ydayStr = refDate.toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
-  const ydayMs  = refDate.getTime();
+function buildEveningReport(todayStr, chatId) {
+  // Teil 1: Heimradar Callsign-Gruppen
+  const dayData = homeStats[todayStr] || {};
+  const uniqueHome = (dayData._callsigns || []).length;
+  const rows = Object.entries(dayData)
+    .filter(([p]) => p !== '_callsigns')
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15);
 
-  function isoWeekday(dStr) {
-    const [d, m, y] = dStr.split('.').map(Number);
-    return (new Date(y, m - 1, d).getDay() + 6) % 7; // 0=Mo 6=So
-  }
-  function daysRange(fromMs, toMs) {
-    const days = [];
-    for (let t = fromMs; t <= toMs; t += 86400000)
-      days.push(new Date(t).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' }));
-    return days;
-  }
-
-  const weekStart  = ydayMs - isoWeekday(ydayStr) * 86400000;
-  const [dd, mm, yy] = ydayStr.split('.').map(Number);
-  const monthStart = new Date(yy, mm - 1, 1).getTime();
-
-  function sumDays(dayList) {
-    const totals = {};
-    const allCallsigns = new Set();
-    for (const day of dayList) {
-      for (const [p, c] of Object.entries(homeStats[day] || {})) {
-        if (p === '_callsigns') { c.forEach(cs => allCallsigns.add(cs)); continue; }
-        totals[p] = (totals[p] || 0) + c;
-      }
-    }
-    totals._uniqueTotal = allCallsigns.size;
-    return totals;
-  }
-  function fmtTable(totals, label) {
-    const uniqueTotal = totals._uniqueTotal;
-    const rows = Object.entries(totals).filter(([p]) => p !== '_uniqueTotal').sort((a, b) => b[1] - a[1]).slice(0, 15);
-    if (!rows.length) return `<b>${label}</b>\n  (keine Daten)\n`;
-    let s = `<b>${label}</b>`;
-    if (uniqueTotal != null) s += ` – ${uniqueTotal} unique Callsigns`;
-    s += `\n`;
+  let report = `<b>🏠 Heimradar Freiburg – ${todayStr}</b> – ${uniqueHome} unique Callsigns\n\n`;
+  if (rows.length) {
     rows.forEach(([p, c]) => {
       const name = AIRLINE_NAMES[p] || '';
-      s += `  <b>${p}</b>${name ? ' ' + name : ''}: ${c}x\n`;
+      report += `  <b>${p}</b>${name ? ' ' + name : ''}: ${c}x\n`;
     });
-    return s;
+  } else {
+    report += '  (keine Daten)\n';
   }
 
-  const nowMs     = Date.now();
-  const weekDays  = daysRange(weekStart, nowMs);
-  const monthDays = daysRange(monthStart, nowMs);
+  // Teil 2: Unbekannte Gruppen des Tages
+  const unknownToday = Object.entries(dayData)
+    .filter(([p]) => p !== '_callsigns' && !AIRLINE_NAMES[p])
+    .sort((a, b) => b[1] - a[1]);
+  if (unknownToday.length) {
+    report += `\n<b>❓ Unbekannte Gruppen heute</b>\n`;
+    unknownToday.forEach(([p, c]) => {
+      const examples = (unknownCallsigns[p] || []).slice(0, 3).join(', ');
+      report += `  <b>${p}</b>: ${c}x${examples ? ' – z.B. ' + examples : ''}\n`;
+    });
+  }
 
-  let report = `<b>🏠 Heimradar Freiburg – Callsign-Gruppen (20nm)</b>\n\n`;
-  const ydayData = homeStats[ydayStr] || {};
-  const ydayUnique = (ydayData._callsigns || []).length;
-  const ydayTotals = Object.assign({}, ydayData, { _uniqueTotal: ydayUnique || null });
-  report += fmtTable(ydayTotals, `Gestern (${ydayStr})`);
-  report += '\n';
-  report += fmtTable(sumDays(weekDays),  'Laufende Woche (Mo-So, inkl. heute)');
-  report += '\n';
-  report += fmtTable(sumDays(monthDays), `Laufender Monat (${mm}/${yy}, inkl. heute)`);
+  // Teil 3: Favoriten des Tages
+  const favEntries = (history[chatId] || []).filter(e => e.date === todayStr);
+  const uniqueFavs = [...new Map(favEntries.map(e => [e.callsign, e])).values()];
+  report += `\n<b>⭐ Favoriten heute</b> – ${uniqueFavs.length} unique Callsigns\n`;
+  if (uniqueFavs.length) {
+    uniqueFavs.forEach(e => {
+      report += `  <b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`;
+    });
+  } else {
+    report += '  (keine Favoriten gesichtet)\n';
+  }
+
   return report;
 }
 
@@ -408,30 +392,43 @@ async function doPoll() {
     console.log('visitStats reset at midnight');
   }
 
-  // Tagesübersicht um 07:55 -- letzte 24 Stunden
-  if (hour === 7 && minute >= 55 && minute <= 59 && lastSummaryDate !== todayStr) {
+  // Abendbericht um 23:59 -- Tagesrückblick + Aufräumen
+  if (hour === 23 && minute >= 59 && lastSummaryDate !== todayStr) {
     lastSummaryDate = todayStr;
-    const cutoff = now - 24 * 60 * 60 * 1000;
-    for (const [chatId, entries] of Object.entries(history)) {
-      const recent = (entries || []).filter(e => e.ts && e.ts >= cutoff);
-      if (!recent.length) continue;
-      const unique = [...new Map(recent.map(e => [e.callsign, e])).values()];
-      let text = `<b>✈ ADSB Radar – Letzte 24 Stunden</b>\n\n`;
-      text += `${unique.length} Favorit${unique.length > 1 ? 'en' : ''} in deinem Radar:\n`;
-      unique.forEach(e => { text += `• <b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`; });
-      try { await sendTelegramMessage(chatId, text); console.log(`Summary sent to ${chatId}`); }
-      catch(e) { console.error(`Summary error: ${e.message}`); }
+
+    // Bericht an alle bekannten Chat-IDs
+    for (const chatId of Object.keys(userState)) {
+      try {
+        const report = buildEveningReport(todayStr, chatId);
+        await sendTelegramMessage(chatId, report);
+        console.log(`Evening report sent to ${chatId}`);
+      } catch(e) { console.error(`Evening report error: ${e.message}`); }
     }
 
-    // Heim-Bericht an alle bekannten Chat-IDs
-    const chatIds = Object.keys(userState);
-    if (chatIds.length > 0) {
-      const report = buildHeimReport(new Date(now - 24 * 60 * 60 * 1000));
-      for (const chatId of chatIds) {
-        try { await sendTelegramMessage(chatId, report); console.log(`Home report sent to ${chatId}`); }
-        catch(e) { console.error(`Home report error: ${e.message}`); }
-      }
+    // flightHistory für heute leeren
+    for (const chatId of Object.keys(history)) {
+      history[chatId] = (history[chatId] || []).filter(e => e.date !== todayStr);
     }
+    saveJSON(HISTORY_FILE, history);
+
+    // homeStats: Einträge älter als 7 Tage löschen
+    const cutoff7 = now - 7 * 24 * 60 * 60 * 1000;
+    for (const dayStr of Object.keys(homeStats)) {
+      const [d, m, y] = dayStr.split('.').map(Number);
+      if (new Date(y, m - 1, d).getTime() < cutoff7) delete homeStats[dayStr];
+    }
+    saveJSON(HOME_STATS_FILE, homeStats);
+
+    // unknownCallsigns: Prefixe löschen die in den letzten 7 Tagen nicht in homeStats vorkamen
+    const activePrefixes = new Set();
+    for (const dayData of Object.values(homeStats))
+      for (const p of Object.keys(dayData))
+        if (p !== '_callsigns') activePrefixes.add(p);
+    for (const p of Object.keys(unknownCallsigns))
+      if (!activePrefixes.has(p)) delete unknownCallsigns[p];
+    saveJSON(UNKNOWN_FILE, unknownCallsigns);
+
+    console.log('Nightly cleanup done');
   }
 
   // Heim-Zählung: Callsign-Prefixe im 20nm Radius um Ziegelweg 11
@@ -645,19 +642,6 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
       reply += `${i + 1}. <b>${cs}</b> – ${count}x\n`;
     });
     await sendTelegramMessage(chatId, reply);
-    return res.json({ ok: true });
-  }
-
-  if (text.startsWith('/heimreport')) {
-    try {
-      // Bericht bezieht sich auf heute (laufender Tag) statt gestern
-      const now    = Date.now();
-      const report = buildHeimReport(new Date(now - 24 * 60 * 60 * 1000));
-      await sendTelegramMessage(chatId, report);
-    } catch(e) {
-      await sendTelegramMessage(chatId, 'Fehler beim Erstellen des Berichts.');
-      console.error('heimreport error:', e.message);
-    }
     return res.json({ ok: true });
   }
 
