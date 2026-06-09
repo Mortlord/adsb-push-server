@@ -411,21 +411,26 @@ async function doPoll() {
       } catch(e) { console.error(`Evening report error: ${e.message}`); }
     }
 
-    // flightHistory für heute leeren
+    // flightHistory: heute leeren + älter als 3 Tage löschen
+    const cutoff3h = now - 3 * 24 * 60 * 60 * 1000;
     for (const chatId of Object.keys(history)) {
-      history[chatId] = (history[chatId] || []).filter(e => e.date !== todayStr);
+      history[chatId] = (history[chatId] || []).filter(e => {
+        if (e.date === todayStr) return false; // heute leeren
+        if (e.ts && e.ts < cutoff3h) return false; // älter als 3 Tage
+        return true;
+      });
     }
     saveJSON(HISTORY_FILE, history);
 
-    // homeStats: Einträge älter als 7 Tage löschen
-    const cutoff7 = now - 7 * 24 * 60 * 60 * 1000;
+    // homeStats: Einträge älter als 3 Tage löschen
+    const cutoff3 = now - 3 * 24 * 60 * 60 * 1000;
     for (const dayStr of Object.keys(homeStats)) {
       const [d, m, y] = dayStr.split('.').map(Number);
-      if (new Date(y, m - 1, d).getTime() < cutoff7) delete homeStats[dayStr];
+      if (new Date(y, m - 1, d).getTime() < cutoff3) delete homeStats[dayStr];
     }
     saveJSON(HOME_STATS_FILE, homeStats);
 
-    // unknownCallsigns: Prefixe löschen die in den letzten 7 Tagen nicht in homeStats vorkamen
+    // unknownCallsigns: Prefixe löschen die in den letzten 3 Tagen nicht in homeStats vorkamen
     const activePrefixes = new Set();
     for (const dayData of Object.values(homeStats))
       for (const p of Object.keys(dayData))
@@ -629,8 +634,23 @@ Trage diese Zahl in der App unter ⭐ FAVORITEN ein, um Benachrichtigungen zu ak
 3. Füge Callsigns oder Prefixe hinzu (z.B. <b>LH</b> für alle Lufthansa-Flüge)
 4. Trage deine Chat-ID ein und tippe auf Speichern
 
-Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:59 Uhr).`;
+Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:59 Uhr).\n\n<b>Befehle:</b>\n/favoriten – Heutige Favoriten-Sichtungen\n/stats – Häufigste Besucher in deiner Alert Zone`;
     await sendTelegramMessage(chatId, welcomeText);
+    return res.json({ ok: true });
+  }
+
+  if (text.startsWith('/favoriten')) {
+    const todayEntries = (history[chatId] || []).filter(e => e.date === todayStr);
+    if (!todayEntries.length) {
+      await sendTelegramMessage(chatId, '⭐ Heute noch keine Favoriten gesichtet.');
+      return res.json({ ok: true });
+    }
+    todayEntries.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    let reply = `<b>⭐ Favoriten heute</b> – ${todayEntries.length} Sichtung${todayEntries.length > 1 ? 'en' : ''}\n\n`;
+    todayEntries.forEach(e => {
+      reply += `<b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`;
+    });
+    await sendTelegramMessage(chatId, reply);
     return res.json({ ok: true });
   }
 
