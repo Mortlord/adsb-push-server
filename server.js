@@ -289,19 +289,25 @@ function sendTelegramMessage(chatId, text) {
   });
 }
 
-function fetchAircraft(lat, lon, radius) {
+function fetchFromUrl(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`,
-      { headers: { 'User-Agent': 'adsb-radar/2.0' } }, res => {
+    const req = https.get(url, { headers: { 'User-Agent': 'adsb-radar/2.0' } }, res => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
     });
     req.on('error', reject);
-    req.setTimeout(10000, () => {
-      req.destroy(new Error('fetchAircraft timeout'));
-    });
+    req.setTimeout(10000, () => { req.destroy(new Error('fetchAircraft timeout')); });
   });
+}
+
+async function fetchAircraft(lat, lon, radius) {
+  try {
+    return await fetchFromUrl(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`);
+  } catch(e) {
+    console.warn(`airplanes.live fehler (${e.message}), Fallback auf adsb.fi`);
+    return await fetchFromUrl(`https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${radius}`);
+  }
 }
 
 function haversine(lat1, lon1, lat2, lon2) {
