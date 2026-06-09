@@ -5,20 +5,27 @@ Hintergrund-Server für Telegram-Benachrichtigungen des ADSB Radar.
 ## Funktion
 
 - Empfängt Standort, Radius, Favoriten und Telegram Chat-ID von der App
-- Pollt minütlich [airplanes.live](https://airplanes.live)
-- Sendet Telegram-Benachrichtigung wenn ein Favorit im Alert-Radius (20nm) auftaucht
-- Zählt alle Flugzeuge im Alert-Radius (unabhängig von Favoriten) für die Statistik
-- Zählt Callsign-Gruppen im 20nm-Radius um Ziegelweg 11, Freiburg (Heimradar)
-- Sendet täglich um 07:55 Uhr zwei Berichte:
-  - Favoriten-Übersicht der letzten 24 Stunden
-  - Heimradar-Bericht mit Callsign-Gruppen (gestern / laufende Woche / laufender Monat)
+- Pollt alle 5 Minuten [airplanes.live](https://airplanes.live)
+- Sendet Telegram-Benachrichtigung wenn ein Favorit im Alert-Radius auftaucht (08:00–23:59 Uhr lokaler Zeit)
+- Sichtungen werden auch nachts aufgezeichnet, nur der Alert wird unterdrückt
+- Zählt alle Flugzeuge im Alert-Radius für die Statistik
+- Zählt Callsign-Gruppen im 20nm-Radius um Freiburg (Heimradar)
+- Sendet täglich um 23:55 Uhr einen Abendbericht:
+  - **Betreiber:** Heimradar-Bericht (Callsign-Gruppen + unique Callsigns), unbekannte Gruppen, Favoriten des Tages
+  - **Alle Nutzer:** Favoriten des Tages mit Uhrzeit und Richtung
+- Löscht täglich Daten älter als 3 Tage (`flightHistory`, `homeStats`, `unknownCallsigns`)
+- Liefert `AIRLINE_NAMES` als API für beide Frontend-Apps
 
 ## Telegram-Befehle
 
 | Befehl | Funktion |
 |---|---|
+| `/start` | Chat-ID anzeigen und Bot aktivieren |
+| `/favoriten` | Heutige Favoriten-Sichtungen mit Uhrzeit |
 | `/stats` | Top 20 häufigste Besucher in der eigenen Alert Zone |
-| `/heimreport` | Heimradar-Bericht on demand abrufen |
+| `/unbekannt` | Unbekannte Callsign-Gruppen (Betreiber) |
+| `/validateHB` | HB-Register validieren (Betreiber) |
+| `/deleteunbekannt` | Unbekannte Liste leeren (Betreiber) |
 
 ## Setup
 
@@ -44,7 +51,7 @@ Hintergrund-Server für Telegram-Benachrichtigungen des ADSB Radar.
 
 ### 3. Cron-Job (poll.js)
 
-Separater Railway-Service, der minütlich `/poll` aufruft und den Haupt-Server dabei wach hält.
+Separater Railway-Service, der alle 5 Minuten `/poll` aufruft und den Haupt-Server dabei wach hält.
 
 ## Endpunkte
 
@@ -52,18 +59,21 @@ Separater Railway-Service, der minütlich `/poll` aufruft und den Haupt-Server d
 |---|---|---|
 | `/update` | POST | Standort + Favoriten von der App empfangen |
 | `/poll` | GET | Poll auslösen (wird vom Cron-Job aufgerufen) |
+| `/airlines` | GET | `AIRLINE_NAMES` als JSON (für beide Frontend-Apps) |
 | `/get-chat-id` | GET | Telegram Chat-ID ermitteln |
 | `/setup-webhook` | GET | Telegram Webhook registrieren |
 | `/status` | GET | Serverstatus und Anzahl aktiver Nutzer |
 
 ## Datenspeicherung
 
-Alle Dateien liegen im Railway-Volume unter `/data`:
+Alle Dateien liegen im Railway-Volume unter `/data`. Daten älter als 3 Tage werden täglich automatisch bereinigt.
 
 | Datei | Inhalt |
 |---|---|
-| `userstate.json` | Standort, Radius, Favoriten je Chat-ID |
-| `flighthistory.json` | Letzte 100 Favoriten-Sichtungen je Chat-ID |
+| `userstate.json` | Standort, Radius, Alert-Radius, Favoriten, Zeitzone je Chat-ID |
+| `flighthistory.json` | Favoriten-Sichtungen je Chat-ID (max. 3 Tage) |
 | `notifiedcache.json` | Cooldown-Timestamps (5 min) gegen Spam |
 | `visitstats.json` | Besuchszähler je Callsign je Chat-ID |
-| `homestats.json` | Callsign-Gruppen-Zähler je Tag (Heimradar) |
+| `homestats.json` | Callsign-Gruppen + Callsign-Liste je Tag, max. 3 Tage (Heimradar) |
+| `unknowncallsigns.json` | Unbekannte Callsign-Prefixe mit Beispielen |
+| `hbcallsigns.json` | Schweizer HB-Privatregister |
