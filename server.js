@@ -640,7 +640,8 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
   }
 
   if (text.startsWith('/favoriten')) {
-    const todayEntries = (history[chatId] || []).filter(e => e.date === todayStr);
+    const todayStrFav = new Date().toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+    const todayEntries = (history[chatId] || []).filter(e => e.date === todayStrFav);
     if (!todayEntries.length) {
       await sendTelegramMessage(chatId, '⭐ Heute noch keine Favoriten gesichtet.');
       return res.json({ ok: true });
