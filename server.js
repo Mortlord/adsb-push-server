@@ -319,7 +319,7 @@ async function fetchPlanespottersPhoto(hex, reg, type) {
     const req = https.get({
       hostname: 'api.planespotters.net',
       path: url,
-      headers: { 'User-Agent': 'adsb-radar/2.0', 'Accept': 'application/json' }
+      headers: { 'User-Agent': 'adsb-radar/2.0 (+https://adsb-radar.de/legal.html)', 'Accept': 'application/json' }
     }, res => {
       let data = '';
       res.on('data', c => data += c);
