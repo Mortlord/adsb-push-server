@@ -233,7 +233,7 @@ const AIRLINE_NAMES = {
   TNA:"TransAsia Airways", TNM:"Tiara Air", TNS:"Transilvania", TNU:"TransNusa Air", TOK:"Airlines PNG",
   TOM:"TUI Airways", TOS:"Tropic Air", TPA:"TAMPA", TRA:"Transavia Holland", TRK:"Turkuaz Airlines",
   TRS:"AirTran Airways", TSC:"Air Transat", TSO:"Transaero Airlines", TTZ:"Transair", TUA:"Turkmenistan Airlines",
-  TUI:"Tuninter", TUR:"ATUR", TUS:"ABSA - Aerolinhas Brasileiras", TVF:"Transavia France", TVJ:"Thai Vietjet Air",
+  TUI:"TUIfly", TUR:"ATUR", TUS:"ABSA - Aerolinhas Brasileiras", TVF:"Transavia France", TVJ:"Thai Vietjet Air",
   TVS:"Travel Service", TWB:"Tway Airlines", TWD:"Turkish Wings Domestic", TWN:"Avialeasing Aviation Company", TXW:"Texas Wings",
   TYR:"Tyrolean Airways", TYS:"TransHolding System", TYW:"Tyrol Air Ambulance", UAC:"United Air Charters", UAE:"Emirates", UAL:"United Airlines",
   UAT:"Ukraine Atlantic", UAY:"University of Birmingham Air Squadron (RAF)", UBA:"Myanma Airways", UBD:"United Airways", UBG:"US-Bangla Airlines",
