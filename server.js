@@ -123,7 +123,7 @@ const AIRLINE_NAMES = {
   GBA:"Gulf Air Bahrain", GBK:"Gabon Airlines", GBL:"GB Airways", GCA:"Grand Cru Airlines", GCR:"Tianjin Airlines",
   GDC:"Grand China Air", GDR:"Gadair European Airlines", GEC:"Lufthansa Cargo", GER:"German International Air Lines", GFA:"Gulf Air", GPX:"GP Aviation",
   GFG:"Georgian National Airlines", GFT:"Gulfstream International Airlines", GFY:"Greenfly", GHB:"Ghana International Airlines", GIA:"Garuda Indonesia",
-  GIE:"Elysian Airlines", GIP:"Air Guinee Express", GJI:"REVA Air Ambulance", GJS:"GoJet Airlines", GLA:"Great Lakes Airlines", GLG:"Aerolineas Galapagos (Aerogal)",
+  GIE:"Elysian Airlines", GIP:"Air Guinee Express", GJI:"GainJet (REVA Air Amb.)", GJS:"GoJet Airlines", GLA:"Great Lakes Airlines", GLG:"Aerolineas Galapagos (Aerogal)",
   GLO:"Gol Transportes Aéreos", GLP:"Globus", GMI:"Germania", GMR:"Golden Myanmar Airlines", GNN:"Georgian International Airlines",
   GOW:"Go Air", GRL:"Air Greenland", GSM:"Flyglobespan", GTA:"City Airways", GTI:"Atlas Air",
   GUY:"Air Guyane", GWI:"Germanwings", GWY:"USA3000 Airlines", GXG:"GermanXL", GZP:"Gazpromavia",
