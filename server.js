@@ -583,7 +583,10 @@ async function doPoll() {
         if (!isNight) {
           const airlineStr = airlineName ? ` · ${airlineName}` : '';
           const caption = `✈ <b>${callsign}</b>${airlineStr}\n${dist.toFixed(1)} nm ${dir}`;
-          const photo = await fetchPlanespottersPhoto(ac.hex);
+          const photoHex = (ac.hex || '').toLowerCase().replace(/^0+/, '');
+          console.log(`Photo lookup: ${callsign} hex=${ac.hex} cleaned=${photoHex}`);
+          const photo = photoHex ? await fetchPlanespottersPhoto(photoHex) : null;
+          console.log(`Photo result: ${callsign} found=${!!photo?.url}`);
           if (photo?.url) {
             const creditStr = photo.photographer ? `\n© ${photo.photographer}` : '';
             await sendTelegramPhoto(chatId, photo.url, caption + creditStr);
