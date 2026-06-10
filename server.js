@@ -224,7 +224,7 @@ const AIRLINE_NAMES = {
   SWR:"Swiss International Air Lines", SWU:"Swiss European Air Lines", SWV:"Swe Fly", SXR:"Sky Express", SXS:"SunExpress",
   SYL:"Aircompany Yakutia", SYR:"Syrian Arab Airlines", SYX:"Skywalk Airlines", SZB:"Aerolineas heredas santa maria", SZZ:"SUR Lineas Aereas",
   TAE:"TAME", TAH:"Air Moorea", TAK:"Tatarstan Airlines", TAM:"TAM Brazilian Airlines", TAN:"Zanair",
-  TAO:"Aeromar", TAP:"TAP Portugal", TAR:"Tunisair", TAT:"Grupo TACA", TBZ:"TrasBrasil",
+  TAO:"Aeromar", TAP:"TAP Portugal", TAR:"Tunisair", TAT:"Grupo TACA", TAY:"ASL Airlines Belgium", TBZ:"TrasBrasil",
   TCF:"Shuttle America", TCG:"Thai Air Cargo", TCV:"TACV", TCW:"Thomas Cook Airlines", TCX:"Thomas Cook Airlines",
   TDK:"Transavia Denmark", TEZ:"Tez Jet Airlines", TFL:"Arkefly", TFN:"Norwegian Aviation College", TGN:"Trigana Air Service",
   TGW:"Tiger Airways Australia", TGZ:"Georgian Airways", THA:"Thai Airways International", THI:"TransHolding", THK:"Turk Hava Kurumu Hava Taksi Isletmesi",
