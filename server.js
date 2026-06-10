@@ -308,9 +308,14 @@ function sendTelegramPhoto(chatId, photoUrl, caption) {
   });
 }
 
-async function fetchPlanespottersPhoto(hex) {
+async function fetchPlanespottersPhoto(hex, reg, type) {
   try {
-    const data = await fetchFromUrl(`https://api.planespotters.net/pub/photos/hex/${hex}`);
+    let url = `https://api.planespotters.net/pub/photos/hex/${hex}`;
+    const params = [];
+    if (reg)  params.push(`reg=${encodeURIComponent(reg)}`);
+    if (type) params.push(`icaoType=${encodeURIComponent(type)}`);
+    if (params.length) url += '?' + params.join('&');
+    const data = await fetchFromUrl(url);
     if (!data.photos?.length) return null;
     const p = data.photos[0];
     return { url: p.thumbnail_large?.src || p.thumbnail?.src, photographer: p.photographer };
@@ -583,9 +588,9 @@ async function doPoll() {
         if (!isNight) {
           const airlineStr = airlineName ? ` · ${airlineName}` : '';
           const caption = `✈ <b>${callsign}</b>${airlineStr}\n${dist.toFixed(1)} nm ${dir}`;
-          const photoHex = (ac.hex || '').toLowerCase().replace(/^0+/, '');
-          console.log(`Photo lookup: ${callsign} hex=${ac.hex} cleaned=${photoHex}`);
-          const photo = photoHex ? await fetchPlanespottersPhoto(photoHex) : null;
+          const photoHex = (ac.hex || '').toLowerCase();
+          console.log(`Photo lookup: ${callsign} hex=${photoHex} reg=${ac.r||''} type=${ac.t||''}`);
+          const photo = photoHex ? await fetchPlanespottersPhoto(photoHex, ac.r, ac.t) : null;
           console.log(`Photo result: ${callsign} found=${!!photo?.url}`);
           if (photo?.url) {
             const creditStr = photo.photographer ? `\n© ${photo.photographer}` : '';
