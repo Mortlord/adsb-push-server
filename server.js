@@ -289,6 +289,34 @@ function sendTelegramMessage(chatId, text) {
   });
 }
 
+function sendTelegramPhoto(chatId, photoUrl, caption) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: 'HTML' });
+    const req  = https.request({
+      hostname: 'api.telegram.org',
+      path:     `/bot${BOT_TOKEN}/sendPhoto`,
+      method:   'POST',
+      headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => resolve(JSON.parse(data)));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function fetchPlanespottersPhoto(hex) {
+  try {
+    const data = await fetchFromUrl(`https://api.planespotters.net/pub/photos/hex/${hex}`);
+    if (!data.photos?.length) return null;
+    const p = data.photos[0];
+    return { url: p.thumbnail_large?.src || p.thumbnail?.src, photographer: p.photographer };
+  } catch { return null; }
+}
+
 function fetchFromUrl(url) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': 'adsb-radar/2.0' } }, res => {
@@ -553,8 +581,15 @@ async function doPoll() {
 
         // Telegram-Alert nur tagsüber (08:00–23:59)
         if (!isNight) {
-          const text = `✈ <b>${callsign}</b> ist in deinem Radar!\n${dist.toFixed(1)} nm ${dir}`;
-          await sendTelegramMessage(chatId, text);
+          const airlineStr = airlineName ? ` · ${airlineName}` : '';
+          const caption = `✈ <b>${callsign}</b>${airlineStr}\n${dist.toFixed(1)} nm ${dir}`;
+          const photo = await fetchPlanespottersPhoto(ac.hex);
+          if (photo?.url) {
+            const creditStr = photo.photographer ? `\n© ${photo.photographer}` : '';
+            await sendTelegramPhoto(chatId, photo.url, caption + creditStr);
+          } else {
+            await sendTelegramMessage(chatId, caption);
+          }
           console.log(`Telegram sent to ${chatId}: ${callsign} ${dist.toFixed(1)} nm ${dir}`);
         } else {
           console.log(`Nacht-Unterdrückung für ${chatId}: ${callsign} ${dist.toFixed(1)} nm ${dir} (kein Alert)`);
