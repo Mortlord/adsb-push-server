@@ -309,17 +309,33 @@ function sendTelegramPhoto(chatId, photoUrl, caption) {
 }
 
 async function fetchPlanespottersPhoto(hex, reg, type) {
-  try {
-    let url = `https://api.planespotters.net/pub/photos/hex/${hex}`;
+  return new Promise((resolve) => {
+    let url = `/pub/photos/hex/${hex}`;
     const params = [];
     if (reg)  params.push(`reg=${encodeURIComponent(reg)}`);
     if (type) params.push(`icaoType=${encodeURIComponent(type)}`);
     if (params.length) url += '?' + params.join('&');
-    const data = await fetchFromUrl(url);
-    if (!data.photos?.length) return null;
-    const p = data.photos[0];
-    return { url: p.thumbnail_large?.src || p.thumbnail?.src, photographer: p.photographer };
-  } catch { return null; }
+
+    const req = https.get({
+      hostname: 'api.planespotters.net',
+      path: url,
+      headers: { 'User-Agent': 'adsb-radar/2.0', 'Accept': 'application/json' }
+    }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        console.log(`Planespotters raw status=${res.statusCode} body=${data.slice(0,200)}`);
+        try {
+          const json = JSON.parse(data);
+          if (!json.photos?.length) { resolve(null); return; }
+          const p = json.photos[0];
+          resolve({ url: p.thumbnail_large?.src || p.thumbnail?.src, photographer: p.photographer });
+        } catch { resolve(null); }
+      });
+    });
+    req.on('error', (e) => { console.error('Planespotters error:', e.message); resolve(null); });
+    req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+  });
 }
 
 function fetchFromUrl(url) {
