@@ -374,7 +374,8 @@ function buildEveningReport(todayStr, chatId) {
   report += `<b>⭐ Favoriten heute</b> – ${uniqueFavs.length} unique Callsigns\n`;
   if (uniqueFavs.length) {
     uniqueFavs.forEach(e => {
-      report += `  <b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`;
+      const airlineStr = e.airline ? ` · ${e.airline}` : '';
+      report += `  <b>${e.callsign}</b>${airlineStr} – ${e.dist} nm ${e.dir} (${e.time})\n`;
     });
   } else {
     report += '  (keine Favoriten gesichtet)\n';
@@ -544,7 +545,9 @@ async function doPoll() {
         saveJSON(CACHE_FILE, notifiedCache);
 
         if (!history[chatId]) history[chatId] = [];
-        history[chatId].push({ callsign, dist: dist.toFixed(1), dir, date: todayStr, time: timeStr, ts: now });
+        const prefix = callsign.slice(0, 3).toUpperCase();
+        const airlineName = AIRLINE_NAMES[prefix] || '';
+        history[chatId].push({ callsign, airline: airlineName, dist: dist.toFixed(1), dir, date: todayStr, time: timeStr, ts: now });
         if (history[chatId].length > 100) history[chatId] = history[chatId].slice(-100);
         saveJSON(HISTORY_FILE, history);
 
@@ -655,7 +658,8 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
     todayEntries.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
     let reply = `<b>⭐ Favoriten heute</b> – ${todayEntries.length} Sichtung${todayEntries.length > 1 ? 'en' : ''}\n\n`;
     todayEntries.forEach(e => {
-      reply += `<b>${e.callsign}</b> – ${e.dist} nm ${e.dir} (${e.time})\n`;
+      const airlineStr = e.airline ? ` · ${e.airline}` : '';
+      reply += `<b>${e.callsign}</b>${airlineStr} – ${e.dist} nm ${e.dir} (${e.time})\n`;
     });
     await sendTelegramMessage(chatId, reply);
     return res.json({ ok: true });
