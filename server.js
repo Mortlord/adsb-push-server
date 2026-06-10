@@ -160,7 +160,7 @@ const AIRLINE_NAMES = {
   LIL:"FlyLal", LIX:"LionXpress", LJJ:"Luchsh Airlines ", LLC:"FlyLAL Charters", LLM:"Yamal Airlines",
   LCO:"Latam Cargo", LMM:"LCM AIRLINES", LMU:"AlMasria Universal Airlines", LNE:"Aerolane", LNI:"Lion Mentari Airlines", LOC:"Locair",
   LOF:"Trans States Airlines", LOO:"LSM Airlines", LOT:"LOT Polish Airlines", LPE:"LAN Peru", LPR:"L",
-  LRC:"LACSA", LTC:"LatCharter", LTD:"Southern Airways Express", LTE:"LTE International Airways", LTO:"LTU Austria",
+  LRC:"LACSA", LTC:"LatCharter", LSI:"MSC Air", LTD:"Southern Airways Express", LTE:"LTE International Airways", LTO:"LTU Austria",
   LTR:"Lufttransport", LTU:"Air Lituanica", LTY:"Liberty Airways", LUA:"Luminair", LUR:"Atlantis European Airways", LXJ:"FlexJet", LXP:"LAN Express",
   LXR:"Air Luxor", LZB:"Bulgaria Air", MAA:"MasAir", MAC:"Malta Air Charter", MAH:"Malév",
   MAI:"Mauritania Airlines International", MAK:"MAT Macedonian Airlines", MAL:"Morningstar Air Express", MAS:"Malaysia Airlines", MAU:"Air Mauritius",
