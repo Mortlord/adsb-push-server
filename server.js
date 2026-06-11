@@ -53,7 +53,7 @@ let homeStats         = loadJSON(HOME_STATS_FILE, {});
 let unknownCallsigns  = loadJSON(UNKNOWN_FILE, {});
 // routeCache: { callsign: { orig, dest, ts } } — 7 Tage TTL
 let serverRouteCache  = loadJSON(ROUTE_CACHE_FILE, {});
-const ROUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 Tage
+const ROUTE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 7 Tage
 let lastUnbekannтPrefixes = new Set(); // Prefixe, die beim letzten /unbekannt-Aufruf bekannt waren
 // hbCallsigns: [callsign, ...] -- Schweizer Privatregister
 let hbCallsigns       = loadJSON(HB_FILE, []);
