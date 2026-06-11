@@ -10,8 +10,12 @@ app.use(express.json());
 const BOT_TOKEN        = process.env.TELEGRAM_BOT_TOKEN || '';
 const AERODATABOX_KEY  = process.env.AERODATABOX_KEY || '';
 
-// Prefixe die über adsbdb laufen (nicht AeroDataBox)
-const ADSBDB_ONLY = new Set(['UAE','HVN','AFR','BAW','FDX','DLH','SWR','AUA','BEL','EWG','CLH']);
+// Prefixe die über AeroDataBox laufen (Whitelist)
+const AERODATABOX_ONLY = new Set([
+  'EZY','EZS','EJU',  // easyJet
+  'TUI','TOM','TFL',  // TUI
+  'UAE',              // Emirates
+]);
 const COOLDOWN_MS  = 5 * 60 * 1000;
 const STATE_FILE   = '/data/userstate.json';
 const HISTORY_FILE = '/data/flighthistory.json';
@@ -854,8 +858,8 @@ app.get('/route', async (req, res) => {
     return res.json({ route: cached.route, source: 'cache' });
   }
 
-  // AeroDataBox für bekannte Airlines außer Ausnahmeliste
-  if (isKnownAirline && !ADSBDB_ONLY.has(prefix) && AERODATABOX_KEY) {
+  // AeroDataBox nur für Whitelist-Prefixe
+  if (AERODATABOX_ONLY.has(prefix) && AERODATABOX_KEY) {
     try {
       const result = await new Promise((resolve, reject) => {
         const req2 = https.get({
