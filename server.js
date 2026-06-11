@@ -7,7 +7,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const BOT_TOKEN    = process.env.TELEGRAM_BOT_TOKEN || '';
+const BOT_TOKEN        = process.env.TELEGRAM_BOT_TOKEN || '';
+const AERODATABOX_KEY  = process.env.AERODATABOX_KEY || '';
+
+// Prefixe die über adsbdb laufen (nicht AeroDataBox)
+const ADSBDB_ONLY = new Set(['UAE','HVN','AFR','BAW','FDX','DLH','SWR','AUA','BEL','EWG','CLH']);
 const COOLDOWN_MS  = 5 * 60 * 1000;
 const STATE_FILE   = '/data/userstate.json';
 const HISTORY_FILE = '/data/flighthistory.json';
@@ -827,6 +831,89 @@ app.get('/setup-webhook', async (req, res) => {
     });
     res.json(r);
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Route-Auflösung ───────────────────────────────────────────
+// Normalisiert Route aus AeroDataBox oder adsbdb
+// GET /route?callsign=DLH1234
+app.get('/route', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const callsign = (req.query.callsign || '').trim().toUpperCase();
+  if (!callsign) return res.json({ route: null });
+
+  const prefix = callsign.slice(0, 3);
+  const isKnownAirline = !!AIRLINE_NAMES[prefix];
+
+  // AeroDataBox für bekannte Airlines außer Ausnahmeliste
+  if (isKnownAirline && !ADSBDB_ONLY.has(prefix) && AERODATABOX_KEY) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const req2 = https.get({
+          hostname: 'aerodatabox.p.rapidapi.com',
+          path: `/flights/callsign/${encodeURIComponent(callsign)}?withAircraftImage=false&withLocation=false`,
+          headers: {
+            'X-RapidAPI-Key': AERODATABOX_KEY,
+            'X-RapidAPI-Host': 'aerodatabox.p.rapidapi.com'
+          }
+        }, r => {
+          let data = '';
+          r.on('data', c => data += c);
+          r.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              const f = Array.isArray(json) ? json[0] : json;
+              if (f?.departure?.airport?.iata && f?.arrival?.airport?.iata) {
+                resolve({
+                  orig: { iata: f.departure.airport.iata, icao: f.departure.airport.icao || '', city: f.departure.airport.name || '' },
+                  dest: { iata: f.arrival.airport.iata,   icao: f.arrival.airport.icao || '',   city: f.arrival.airport.name || '' }
+                });
+              } else { resolve(null); }
+            } catch { resolve(null); }
+          });
+        });
+        req2.on('error', reject);
+        req2.setTimeout(8000, () => { req2.destroy(); reject(new Error('timeout')); });
+      });
+      if (result) {
+        console.log(`AeroDataBox route: ${callsign} ${result.orig.iata}→${result.dest.iata}`);
+        return res.json({ route: result, source: 'aerodatabox' });
+      }
+    } catch(e) {
+      console.warn(`AeroDataBox error for ${callsign}: ${e.message}`);
+    }
+  }
+
+  // Fallback: adsbdb
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const req3 = https.get({
+        hostname: 'api.adsbdb.com',
+        path: `/v0/callsign/${encodeURIComponent(callsign)}`,
+        headers: { 'User-Agent': 'adsb-radar/2.0 (+https://adsb-radar.de)' }
+      }, r => {
+        let data = '';
+        r.on('data', c => data += c);
+        r.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const fr = json?.response?.flightroute;
+            if (fr?.origin?.iata_code && fr?.destination?.iata_code) {
+              resolve({
+                orig: { iata: fr.origin.iata_code,      icao: fr.origin.icao_code      || '', city: fr.origin.municipality      || fr.origin.name      || '' },
+                dest: { iata: fr.destination.iata_code, icao: fr.destination.icao_code || '', city: fr.destination.municipality || fr.destination.name || '' }
+              });
+            } else { resolve(null); }
+          } catch { resolve(null); }
+        });
+      });
+      req3.on('error', reject);
+      req3.setTimeout(8000, () => { req3.destroy(); reject(new Error('timeout')); });
+    });
+    return res.json({ route: result, source: 'adsbdb' });
+  } catch(e) {
+    console.warn(`adsbdb error for ${callsign}: ${e.message}`);
+    return res.json({ route: null });
+  }
 });
 
 app.get('/status', (req, res) => {
