@@ -13,7 +13,6 @@ const AERODATABOX_KEY  = process.env.AERODATABOX_KEY || '';
 // Prefixe die über AeroDataBox laufen (Whitelist)
 const AERODATABOX_ONLY = new Set([
   'ENT','FRF','SRN',  // Sonstige
-  'UAE',              // Emirates
 ]);
 const COOLDOWN_MS  = 5 * 60 * 1000;
 const STATE_FILE   = '/data/userstate.json';
