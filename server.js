@@ -33,6 +33,7 @@ const STATS_FILE      = '/data/visitstats.json';
 const HOME_STATS_FILE = '/data/homestats.json';
 const UNKNOWN_FILE    = '/data/unknowncallsigns.json';
 const HB_FILE         = '/data/hbcallsigns.json';
+const ROUTE_CACHE_FILE = '/data/routecache.json';
 
 // Heimadresse fix: Ziegelweg 11, 79100 Freiburg
 const HOME_LAT    = 47.9732;
@@ -47,6 +48,9 @@ let visitStats    = loadJSON(STATS_FILE,   {}); // { chatId: { callsign: count }
 let homeStats         = loadJSON(HOME_STATS_FILE, {});
 // unknownCallsigns: { PREFIX: [callsign, ...] }
 let unknownCallsigns  = loadJSON(UNKNOWN_FILE, {});
+// routeCache: { callsign: { orig, dest, ts } } — 7 Tage TTL
+let serverRouteCache  = loadJSON(ROUTE_CACHE_FILE, {});
+const ROUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 Tage
 let lastUnbekannтPrefixes = new Set(); // Prefixe, die beim letzten /unbekannt-Aufruf bekannt waren
 // hbCallsigns: [callsign, ...] -- Schweizer Privatregister
 let hbCallsigns       = loadJSON(HB_FILE, []);
@@ -844,6 +848,12 @@ app.get('/route', async (req, res) => {
   const prefix = callsign.slice(0, 3);
   const isKnownAirline = !!AIRLINE_NAMES[prefix];
 
+  // Serverseitiger Cache prüfen (7 Tage TTL)
+  const cached = serverRouteCache[callsign];
+  if (cached && (Date.now() - cached.ts) < ROUTE_TTL_MS) {
+    return res.json({ route: cached.route, source: 'cache' });
+  }
+
   // AeroDataBox für bekannte Airlines außer Ausnahmeliste
   if (isKnownAirline && !ADSBDB_ONLY.has(prefix) && AERODATABOX_KEY) {
     try {
@@ -876,6 +886,8 @@ app.get('/route', async (req, res) => {
       });
       if (result) {
         console.log(`AeroDataBox route: ${callsign} ${result.orig.iata}→${result.dest.iata}`);
+        serverRouteCache[callsign] = { route: result, ts: Date.now() };
+        saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
         return res.json({ route: result, source: 'aerodatabox' });
       }
     } catch(e) {
@@ -909,6 +921,10 @@ app.get('/route', async (req, res) => {
       req3.on('error', reject);
       req3.setTimeout(8000, () => { req3.destroy(); reject(new Error('timeout')); });
     });
+    if (result) {
+      serverRouteCache[callsign] = { route: result, ts: Date.now() };
+      saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
+    }
     return res.json({ route: result, source: 'adsbdb' });
   } catch(e) {
     console.warn(`adsbdb error for ${callsign}: ${e.message}`);
