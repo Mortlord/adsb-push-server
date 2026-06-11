@@ -855,6 +855,7 @@ app.get('/route', async (req, res) => {
   // Serverseitiger Cache prüfen (7 Tage TTL)
   const cached = serverRouteCache[callsign];
   if (cached && (Date.now() - cached.ts) < ROUTE_TTL_MS) {
+    console.log(`Cache hit: ${callsign}`);
     return res.json({ route: cached.route, source: 'cache' });
   }
 
