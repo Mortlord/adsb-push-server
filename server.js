@@ -2,13 +2,46 @@ const express = require('express');
 const cors    = require('cors');
 const https   = require('https');
 const fs      = require('fs');
+const crypto  = require('crypto');
+const path    = require('path');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// CORS auf die eigene Origin einschraenken statt '*' (Punkt 1/6/7)
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
+  'https://adsb-radar.de,https://www.adsb-radar.de').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, cb) {
+    // Anfragen ohne Origin (Cron, Telegram, curl) zulassen, Browser-Origins nur aus Whitelist
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error('Origin not allowed'));
+  }
+}));
+app.use(express.json({ limit: '64kb' }));
 
 const BOT_TOKEN        = process.env.TELEGRAM_BOT_TOKEN || '';
 const AERODATABOX_KEY  = process.env.AERODATABOX_KEY || '';
+
+// Geteilte Geheimnisse fuer Admin-Endpunkte und Telegram-Webhook (Punkte 2,3,4)
+const ADMIN_SECRET     = process.env.ADMIN_SECRET || '';
+const WEBHOOK_SECRET   = process.env.WEBHOOK_SECRET || '';
+// Fester Public-Host fuer setup-webhook, NICHT aus dem Host-Header (Punkt 4)
+const PUBLIC_HOST      = process.env.PUBLIC_HOST || '';
+
+// Konstantzeit-Vergleich gegen Timing-Angriffe
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a || ''));
+  const bb = Buffer.from(String(b || ''));
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+// Middleware: schuetzt Admin-Endpunkte per Header X-Admin-Secret oder ?key=
+function requireAdmin(req, res, next) {
+  const provided = req.get('X-Admin-Secret') || req.query.key || '';
+  if (ADMIN_SECRET && safeEqual(provided, ADMIN_SECRET)) return next();
+  return res.status(403).json({ ok: false, error: 'forbidden' });
+}
 
 // Prefixe die über AeroDataBox laufen (Whitelist)
 const AERODATABOX_ONLY = new Set([
@@ -21,13 +54,58 @@ const CACHE_FILE   = '/data/notifiedcache.json';
 
 try { fs.mkdirSync('/data', { recursive: true }); } catch(e) {}
 
+// ── Verschluesselung der State-Dateien im Ruhezustand (AES-256-GCM) ──
+// Schluessel aus Env STATE_ENC_KEY (32 Byte, base64 oder hex). Fehlt er,
+// wird im Klartext gespeichert und nur eine Warnung geloggt (Abwaertskompatibel).
+const STATE_ENC_KEY = (() => {
+  const raw = process.env.STATE_ENC_KEY || '';
+  if (!raw) { console.warn('STATE_ENC_KEY nicht gesetzt: State wird im Klartext gespeichert.'); return null; }
+  let key;
+  try { key = /^[0-9a-fA-F]{64}$/.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64'); }
+  catch { key = null; }
+  if (!key || key.length !== 32) { console.error('STATE_ENC_KEY ungueltig (32 Byte noetig): Klartext-Fallback.'); return null; }
+  return key;
+})();
+const ENC_MAGIC = 'ENC1:'; // Praefix markiert verschluesselte Dateien
+
+function encryptString(plain) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', STATE_ENC_KEY, iv);
+  const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ENC_MAGIC + Buffer.concat([iv, tag, enc]).toString('base64');
+}
+function decryptString(raw) {
+  const payload = Buffer.from(raw.slice(ENC_MAGIC.length), 'base64');
+  const iv  = payload.subarray(0, 12);
+  const tag = payload.subarray(12, 28);
+  const enc = payload.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', STATE_ENC_KEY, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+}
+
 function loadJSON(file, def) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-  catch { return def; }
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    if (raw.startsWith(ENC_MAGIC)) {
+      if (!STATE_ENC_KEY) { console.error(`Datei ${file} ist verschluesselt, aber kein Schluessel gesetzt.`); return def; }
+      return JSON.parse(decryptString(raw));
+    }
+    // Klartext (alte Datei) lesen, wird beim naechsten Save automatisch verschluesselt
+    return JSON.parse(raw);
+  } catch { return def; }
 }
 
 function saveJSON(file, data) {
-  try { fs.writeFileSync(file, JSON.stringify(data)); }
+  // Atomar schreiben + restriktive Rechte 0600, optional verschluesselt (Punkte 11, 9)
+  try {
+    const json = JSON.stringify(data);
+    const out  = STATE_ENC_KEY ? encryptString(json) : json;
+    const tmp  = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, out, { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  }
   catch(e) { console.error('Save error:', e.message); }
 }
 
@@ -37,10 +115,10 @@ const UNKNOWN_FILE    = '/data/unknowncallsigns.json';
 const HB_FILE         = '/data/hbcallsigns.json';
 const ROUTE_CACHE_FILE = '/data/routecache.json';
 
-// Heimadresse fix: Ziegelweg 11, 79100 Freiburg
-const HOME_LAT    = 47.9732;
-const HOME_LON    = 7.8319;
-const HOME_RADIUS = 20; // nm
+// Heimadresse aus Env-Vars statt hartkodiert (Punkt 8)
+const HOME_LAT    = parseFloat(process.env.HOME_LAT || '47.9732');
+const HOME_LON    = parseFloat(process.env.HOME_LON || '7.8319');
+const HOME_RADIUS = parseInt(process.env.HOME_RADIUS || '20', 10); // nm
 
 let userState     = loadJSON(STATE_FILE,   {});
 let history       = loadJSON(HISTORY_FILE, {});
@@ -52,10 +130,31 @@ let homeStats         = loadJSON(HOME_STATS_FILE, {});
 let unknownCallsigns  = loadJSON(UNKNOWN_FILE, {});
 // routeCache: { callsign: { orig, dest, ts } } — 7 Tage TTL
 let serverRouteCache  = loadJSON(ROUTE_CACHE_FILE, {});
-const ROUTE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 7 Tage
-let lastUnbekannтPrefixes = new Set(); // Prefixe, die beim letzten /unbekannt-Aufruf bekannt waren
+const ROUTE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 Tage (Punkt 13: Kommentar korrigiert)
+let lastUnknownPrefixes = new Set(); // Prefixe, die beim letzten /unbekannt-Aufruf bekannt waren (Punkt 12: ASCII-Name)
 // hbCallsigns: [callsign, ...] -- Schweizer Privatregister
 let hbCallsigns       = loadJSON(HB_FILE, []);
+
+// Auth-Token-Store: bindet App-Aufrufe an eine Chat-ID (Punkt 1)
+// chatTokens: { chatId: token }   tokenIndex: { token: chatId }
+const TOKEN_FILE  = '/data/chattokens.json';
+let chatTokens    = loadJSON(TOKEN_FILE, {});
+let tokenIndex    = {};
+for (const [cid, tok] of Object.entries(chatTokens)) tokenIndex[tok] = cid;
+
+function issueToken(chatId) {
+  if (chatTokens[chatId]) return chatTokens[chatId];
+  const tok = crypto.randomBytes(24).toString('base64url');
+  chatTokens[chatId] = tok;
+  tokenIndex[tok] = chatId;
+  saveJSON(TOKEN_FILE, chatTokens);
+  return tok;
+}
+// Loest eine Chat-ID aus einem mitgesendeten Token auf (oder null)
+function chatIdFromToken(token) {
+  if (!token) return null;
+  return tokenIndex[token] || null;
+}
 
 // ICAO-Prefix -> Klarname
 const AIRLINE_NAMES = {
@@ -123,7 +222,7 @@ const AIRLINE_NAMES = {
   EWG:"Eurowings", EXS:"Jet2.com", EZA:"Eznis Airways", EZE:"Eastern Airways", EZS:"easyJet Switzerland", EZY:"easyJet",
   FAB:"First Air", FAF:"France Airforce", FBL:"Fly Brasil", FBU:"Frenchbee", FCA:"First Choice Airways", FCB:"COBALT", FCM:"Flybe Finland Oy",
   FDB:"Fly Dubai", FDD:"Feeder Airlines", FDX:"FedEx", FEG:"FlyEgypt", FFM:"Firefly", FFT:"Frontier Airlines",
-  FFV:"Fly540", FHE:"Hello", FHI:"FlyHigh Airlines Ireland (FH)", FHM:"Freebird Airlines Europe", FIF:"Air Finland", FIF:"Air Finland", FIN:"Finnair",
+  FFV:"Fly540", FHE:"Hello", FHI:"FlyHigh Airlines Ireland (FH)", FHM:"Freebird Airlines Europe", FIF:"Air Finland", FIN:"Finnair",
   FIX:"Airfix Aviation", FJI:"Air Pacific", FJM:"Fly Jamaica Airways", FJO:"FlexJet", FKA:"Flying kangaroo Airline", FLB:"German Air Force - FLB",
   FLG:"Pinnacle Airlines", FLJ:"FlexJet", FLI:"Atlantic Airways", FLO:"Flexjet Operations Malta", FLT:"Flightline", FLZ:"Air Florida", FNA:"Norlandair",
   FOS:"Formosa Airlines", FOX:"FOX Linhas Aereas", FPO:"ASL Airlines France", FPT:"FlyPortugal", FRE:"Freedom Air",
@@ -261,7 +360,7 @@ const AIRLINE_NAMES = {
   WAJ:"AirAsia Japan", WAL:"Western Airlines", WAU:"Wizz Air Ukraine", WBA:"Finncomm Airlines", WCG:"Warsaw Cargo", WEB:"WebJet Linhas A",
   WEN:"WestJet Encore", WER:"AeroWorld ", WFX:"Westfalia Express VA", WIF:"Widerøe", WJA:"WestJet",
   WLC:"Welcome Air", WMT:"WizzAir Malta", WOA:"World Airways", WON:"Wings Air", WOW:"Air Southwest", WRC:"Wind Rose Aviation",
-  WSS:"World Scale Airlines", WTA:"Africa West", WTJ:"Whitejets", WUK:"Wizz Air UK", WVL:"Wizz Air Hungary", WMT:"Wizz Air Malta", WZZ:"Wizz Air",
+  WSS:"World Scale Airlines", WTA:"Africa West", WTJ:"Whitejets", WUK:"Wizz Air UK", WVL:"Wizz Air Hungary", WZZ:"Wizz Air",
   XAN:"Southjet cargo", XAU:"XAIR USA", XAX:"AirAsia X", XBM:"CBM America", XEL:"Excel Charter",
   XLA:"Excel Airways", XOJ:"XOJET", XPT:"XPTO", XSR:"Executive AirShare", YCC:"Ciel Canadien",
   YCP:"Canadian National Airways", YEL:"Yellowtail", YEP:"YES Airways", YZZ:"LSM AIRLINES ", ZCS:"Southjet connect",
@@ -390,7 +489,7 @@ function bearing(lat1, lon1, lat2, lon2) {
 
 // ── Abend-Bericht generieren ──────────────────────────────────
 
-const OWNER_CHAT_ID = '8991828124';
+const OWNER_CHAT_ID = process.env.OWNER_CHAT_ID || '';
 
 function buildEveningReport(todayStr, chatId) {
   let report = '';
@@ -639,18 +738,29 @@ async function doPoll() {
 
 // App schickt Standort + Favoriten
 app.post('/update', (req, res) => {
-  const { chat_id, lat, lon, radius, favorites, alert_radius, timezone } = req.body;
-  if (!chat_id) return res.json({ ok: false });
-  userState[chat_id] = { lat, lon, radius, favorites: favorites || [], alert_radius: alert_radius || 20, timezone: timezone || 'Europe/Berlin', lastSeen: Date.now() };
+  const { token, lat, lon, radius, favorites, alert_radius, timezone } = req.body;
+  // Chat-ID wird serverseitig aus dem Token abgeleitet, NICHT aus dem Body (Punkt 1)
+  const chat_id = chatIdFromToken(token);
+  if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
+
+  const favArr = Array.isArray(favorites) ? favorites.slice(0, 50).map(String) : [];
+  userState[chat_id] = {
+    lat, lon, radius,
+    favorites: favArr,
+    alert_radius: alert_radius || 20,
+    timezone: timezone || 'Europe/Berlin',
+    lastSeen: Date.now()
+  };
   saveJSON(STATE_FILE, userState);
-  console.log(`Updated [${chat_id}]: favorites=${favorites}, alert=${alert_radius}`);
+  console.log(`Updated [${chat_id}]: ${favArr.length} favs, alert=${alert_radius}`);
   res.json({ ok: true });
 });
 
 // Nutzer-Daten löschen (DSGVO Art. 17)
 app.delete('/delete', (req, res) => {
-  const { chat_id } = req.body;
-  if (!chat_id) return res.json({ ok: false, error: 'chat_id required' });
+  const { token } = req.body;
+  const chat_id = chatIdFromToken(token);
+  if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
   let deleted = false;
   if (userState[chat_id])     { delete userState[chat_id];     saveJSON(STATE_FILE,   userState);   deleted = true; }
   if (history[chat_id])       { delete history[chat_id];       saveJSON(HISTORY_FILE, history);               }
@@ -661,23 +771,27 @@ app.delete('/delete', (req, res) => {
     if (key.startsWith(`${chat_id}:`)) delete notifiedCache[key];
   }
   saveJSON(CACHE_FILE, notifiedCache);
+  // Token widerrufen, damit die Bindung vollstaendig geloescht wird
+  delete tokenIndex[token];
+  delete chatTokens[chat_id];
+  saveJSON(TOKEN_FILE, chatTokens);
   console.log(`Deleted data for ${chat_id}`);
   res.json({ ok: true, deleted });
 });
 
-// Cron-Job triggert Poll
-app.get('/poll', async (req, res) => {
+// Cron-Job triggert Poll – nur mit Admin-Secret (Punkt 2)
+app.get('/poll', requireAdmin, async (req, res) => {
   try {
     await doPoll();
     res.json({ ok: true });
   } catch(e) {
-    console.error('Poll error:', e.message);
-    res.status(500).json({ ok: false, error: e.message });
+    console.error('Poll error:', e.message); // Detail nur ins Log (Punkt 10)
+    res.status(500).json({ ok: false, error: 'internal error' });
   }
 });
 
-// Chat-ID ermitteln
-app.get('/get-chat-id', async (req, res) => {
+// Chat-ID/Updates ermitteln – Dev-Hilfsendpunkt, nur mit Admin-Secret (Punkt 2)
+app.get('/get-chat-id', requireAdmin, async (req, res) => {
   try {
     const r = await new Promise((resolve, reject) => {
       https.get(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`, resp => {
@@ -689,28 +803,40 @@ app.get('/get-chat-id', async (req, res) => {
     const updates = r.result || [];
     if (!updates.length) return res.json({ chat_id: null });
     res.json({ chat_id: updates[updates.length - 1].message?.chat?.id });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) {
+    console.error('get-chat-id error:', e.message);
+    res.status(500).json({ error: 'internal error' });
+  }
 });
 
 // Telegram Webhook fuer Bot-Kommandos
 app.post('/telegram-webhook', async (req, res) => {
+  // Secret-Token aus dem Header pruefen (Punkt 3)
+  if (WEBHOOK_SECRET) {
+    const got = req.get('X-Telegram-Bot-Api-Secret-Token') || '';
+    if (!safeEqual(got, WEBHOOK_SECRET)) {
+      return res.status(403).json({ ok: false });
+    }
+  }
   const msg = req.body?.message;
   if (!msg) return res.json({ ok: true });
   const chatId = String(msg.chat?.id);
   const text   = msg.text || '';
 
   if (text === '/start') {
+    const token = issueToken(chatId);
     const welcomeText = `✈ <b>Willkommen bei ADSB Radar!</b>
 
-Deine Chat-ID: <code>${chatId}</code>
+Dein Aktivierungscode:
+<code>${token}</code>
 
-Trage diese Zahl in der App unter ⭐ FAVORITEN ein, um Benachrichtigungen zu aktivieren.
+Trage diesen Code in der App unter ⭐ FAVORITEN ein, um Benachrichtigungen zu aktivieren. Behandle ihn wie ein Passwort und teile ihn nicht.
 
 <b>So geht's:</b>
 1. Öffne <a href="https://adsb-radar.de">adsb-radar.de</a>
 2. Tippe auf ⭐ FAVORITEN
 3. Füge Callsigns oder Prefixe hinzu (z.B. <b>LH</b> für alle Lufthansa-Flüge)
-4. Trage deine Chat-ID ein und tippe auf Speichern
+4. Trage deinen Aktivierungscode ein und tippe auf Speichern
 
 Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:59 Uhr).\n\n<b>Befehle:</b>\n/favoriten – Heutige Favoriten-Sichtungen\n/stats – Häufigste Besucher in deiner Alert Zone`;
     await sendTelegramMessage(chatId, welcomeText);
@@ -766,14 +892,14 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
         return res.json({ ok: true });
       }
       const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-      const isFirstCall = lastUnbekannтPrefixes.size === 0;
+      const isFirstCall = lastUnknownPrefixes.size === 0;
       let reply = `<b>❓ Unbekannte Callsign-Gruppen</b>\n\n`;
       sorted.forEach(([p, c]) => {
         const examples = (unknownCallsigns[p] || []).slice(0, 3).join(', ');
-        const isNew = !isFirstCall && !lastUnbekannтPrefixes.has(p);
+        const isNew = !isFirstCall && !lastUnknownPrefixes.has(p);
         reply += `${isNew ? '🆕 ' : ''}<b>${p}</b>: ${c}x${examples ? ' – z.B. ' + examples : ''}\n`;
       });
-      lastUnbekannтPrefixes = new Set(Object.keys(totals));
+      lastUnknownPrefixes = new Set(Object.keys(totals));
       await sendTelegramMessage(chatId, reply);
     } catch(e) {
       await sendTelegramMessage(chatId, 'Fehler beim Erstellen des Berichts.');
@@ -800,6 +926,10 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
   }
 
   if (text.startsWith('/deleteunbekannt')) {
+    if (chatId !== OWNER_CHAT_ID) {
+      await sendTelegramMessage(chatId, 'Nicht berechtigt.');
+      return res.json({ ok: true });
+    }
     try {
       unknownCallsigns = {};
       saveJSON(UNKNOWN_FILE, unknownCallsigns);
@@ -815,12 +945,16 @@ Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:
 });
 
 // Webhook bei Telegram registrieren
-app.get('/setup-webhook', async (req, res) => {
-  const host = req.headers.host;
+app.get('/setup-webhook', requireAdmin, async (req, res) => {
+  // Festen Public-Host nutzen statt req.headers.host (Punkt 4)
+  const host = PUBLIC_HOST || req.headers.host;
   const url  = `https://${host}/telegram-webhook`;
   try {
     const r = await new Promise((resolve, reject) => {
-      const body = JSON.stringify({ url });
+      // secret_token wird bei jedem eingehenden Update als Header zurueckgesendet (Punkt 3)
+      const payload = { url };
+      if (WEBHOOK_SECRET) payload.secret_token = WEBHOOK_SECRET;
+      const body = JSON.stringify(payload);
       const reqH = https.request({
         hostname: 'api.telegram.org',
         path:     `/bot${BOT_TOKEN}/setWebhook`,
@@ -836,16 +970,44 @@ app.get('/setup-webhook', async (req, res) => {
       reqH.end();
     });
     res.json(r);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) {
+    console.error('setup-webhook error:', e.message);
+    res.status(500).json({ error: 'internal error' });
+  }
 });
 
 // ── Route-Auflösung ───────────────────────────────────────────
+// Einfacher In-Memory-Rate-Limiter pro IP (Punkt 5)
+const routeHits = new Map(); // ip -> { count, windowStart }
+const RL_WINDOW_MS = 60 * 1000;
+const RL_MAX       = 30; // max. 30 Route-Anfragen pro IP und Minute
+function rateLimitRoute(req, res, next) {
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  const now = Date.now();
+  const rec = routeHits.get(ip);
+  if (!rec || now - rec.windowStart > RL_WINDOW_MS) {
+    routeHits.set(ip, { count: 1, windowStart: now });
+    return next();
+  }
+  if (rec.count >= RL_MAX) {
+    return res.status(429).json({ route: null, error: 'rate limit' });
+  }
+  rec.count++;
+  return next();
+}
+// Map gelegentlich aufraeumen, damit sie nicht unbegrenzt waechst
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, rec] of routeHits) if (now - rec.windowStart > RL_WINDOW_MS) routeHits.delete(ip);
+}, 5 * 60 * 1000).unref?.();
+
 // Normalisiert Route aus AeroDataBox oder adsbdb
 // GET /route?callsign=DLH1234
-app.get('/route', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+app.get('/route', rateLimitRoute, async (req, res) => {
   const callsign = (req.query.callsign || '').trim().toUpperCase();
   if (!callsign) return res.json({ route: null });
+  // Nur plausible Callsigns zulassen (2-8 alphanumerische Zeichen), sonst keine API-Calls (Punkt 5)
+  if (!/^[A-Z0-9]{2,8}$/.test(callsign)) return res.json({ route: null });
 
   const prefix = callsign.slice(0, 3);
   const isKnownAirline = !!AIRLINE_NAMES[prefix];
@@ -941,6 +1103,25 @@ app.get('/status', (req, res) => {
 
 app.get('/airlines', (req, res) => {
   res.json(AIRLINE_NAMES);
+});
+
+// Eigener Aircraft-Proxy als Fallback statt corsproxy.io (Punkt 7)
+// Akzeptiert nur numerische Koordinaten und ruft ausschliesslich die bekannten Upstreams auf
+app.get('/aircraft', rateLimitRoute, async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  const radius = Math.min(parseInt(req.query.radius, 10) || 40, 250);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) ||
+      lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return res.status(400).json({ error: 'bad coordinates' });
+  }
+  try {
+    const data = await fetchAircraft(lat.toFixed(4), lon.toFixed(4), radius);
+    res.json(data);
+  } catch(e) {
+    console.error('aircraft proxy error:', e.message);
+    res.status(502).json({ error: 'upstream error' });
+  }
 });
 
 const port = process.env.PORT || 3000;
