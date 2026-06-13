@@ -1068,6 +1068,7 @@ app.get('/route', rateLimitRoute, async (req, res) => {
         path: `/v0/callsign/${encodeURIComponent(callsign)}`,
         headers: { 'User-Agent': 'adsb-radar/2.0 (+https://adsb-radar.de)' }
       }, r => {
+        const status = r.statusCode;
         let data = '';
         r.on('data', c => data += c);
         r.on('end', () => {
@@ -1079,8 +1080,15 @@ app.get('/route', rateLimitRoute, async (req, res) => {
                 orig: { iata: fr.origin.iata_code,      icao: fr.origin.icao_code      || '', city: fr.origin.municipality      || fr.origin.name      || '' },
                 dest: { iata: fr.destination.iata_code, icao: fr.destination.icao_code || '', city: fr.destination.municipality || fr.destination.name || '' }
               });
-            } else { resolve(null); }
-          } catch { resolve(null); }
+            } else {
+              // DIAGNOSE: adsbdb lieferte keine Route -- Status und kurzen Body loggen
+              console.warn(`adsbdb no-route ${callsign}: HTTP ${status} body=${data.slice(0, 200)}`);
+              resolve(null);
+            }
+          } catch {
+            console.warn(`adsbdb parse-fail ${callsign}: HTTP ${status} body=${data.slice(0, 200)}`);
+            resolve(null);
+          }
         });
       });
       req3.on('error', reject);
