@@ -1,9 +1,18 @@
 const https = require('https');
 
-const SERVER = 'web-production-a6fc8.up.railway.app/poll?key=a2ddffc9de2594279918e76cddac5f2f0ba5829fdb47db93';
+const HOST = 'web-production-a6fc8.up.railway.app';
+const KEY  = process.env.ADMIN_SECRET;
 
-// Triggert den Web-Server zum Pollen -- hält ihn dabei auch wach
-https.get(`https://${SERVER}/poll`, res => {
+if (!KEY) {
+  console.error('ADMIN_SECRET fehlt in der Umgebung -- Poll nicht ausgeloest.');
+  process.exit(0);
+}
+
+// Key per Header statt URL-Parameter, damit er nicht in Logs landet.
+const opts = { headers: { 'X-Admin-Secret': KEY } };
+
+// Triggert den Web-Server zum Pollen -- haelt ihn dabei auch wach.
+https.get(`https://${HOST}/poll`, opts, res => {
   let data = '';
   res.on('data', c => data += c);
   res.on('end', () => {
