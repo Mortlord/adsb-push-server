@@ -1001,6 +1001,36 @@ setInterval(() => {
   for (const [ip, rec] of routeHits) if (now - rec.windowStart > RL_WINDOW_MS) routeHits.delete(ip);
 }, 5 * 60 * 1000).unref?.();
 
+// adsbdb-Schonung gegen Rate-Limit (429): negatives Caching, Drosselung, Cooldown
+const NEG_TTL_MS          = 12 * 60 * 60 * 1000; // "keine Route" 12h cachen
+const ADSBDB_MIN_INTERVAL = 700;                 // min. Abstand zwischen adsbdb-Calls (ms)
+const ADSBDB_COOLDOWN_MS  = 90 * 1000;           // nach 429: 90s gar nicht anfragen
+let   adsbdbCooldownUntil = 0;
+let   lastAdsbdbAt        = 0;
+let   adsbdbChain         = Promise.resolve();
+
+// Serialisiert und entzerrt ausgehende adsbdb-Aufrufe
+function adsbdbThrottle() {
+  const p = adsbdbChain.then(async () => {
+    const wait = Math.max(0, lastAdsbdbAt + ADSBDB_MIN_INTERVAL - Date.now());
+    if (wait) await new Promise(r => setTimeout(r, wait));
+    lastAdsbdbAt = Date.now();
+  });
+  adsbdbChain = p.catch(() => {});
+  return p;
+}
+
+// Abgelaufene Cache-Eintraege stuendlich aufraeumen, damit die Datei nicht waechst
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const [cs, e] of Object.entries(serverRouteCache)) {
+    const ttl = e.route ? ROUTE_TTL_MS : NEG_TTL_MS;
+    if (now - e.ts > ttl) { delete serverRouteCache[cs]; changed = true; }
+  }
+  if (changed) saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
+}, 60 * 60 * 1000).unref?.();
+
 // Normalisiert Route aus AeroDataBox oder adsbdb
 // GET /route?callsign=DLH1234
 app.get('/route', rateLimitRoute, async (req, res) => {
@@ -1012,11 +1042,13 @@ app.get('/route', rateLimitRoute, async (req, res) => {
   const prefix = callsign.slice(0, 3);
   const isKnownAirline = !!AIRLINE_NAMES[prefix];
 
-  // Serverseitiger Cache prüfen (7 Tage TTL)
+  // Serverseitiger Cache: Treffer 14 Tage, bestaetigte "keine Route" 12h
   const cached = serverRouteCache[callsign];
-  if (cached && (Date.now() - cached.ts) < ROUTE_TTL_MS) {
-    console.log(`Cache hit: ${callsign}`);
-    return res.json({ route: cached.route, source: 'cache' });
+  if (cached) {
+    const ttl = cached.route ? ROUTE_TTL_MS : NEG_TTL_MS;
+    if ((Date.now() - cached.ts) < ttl) {
+      return res.json({ route: cached.route, source: 'cache' });
+    }
   }
 
   // AeroDataBox nur für Whitelist-Prefixe
@@ -1060,9 +1092,13 @@ app.get('/route', rateLimitRoute, async (req, res) => {
     }
   }
 
-  // Fallback: adsbdb
+  // Fallback: adsbdb -- gedrosselt, mit Cooldown und negativem Caching
+  if (Date.now() < adsbdbCooldownUntil) {
+    return res.json({ route: null, source: 'cooldown' });
+  }
   try {
-    const result = await new Promise((resolve, reject) => {
+    await adsbdbThrottle();
+    const out = await new Promise((resolve, reject) => {
       const req3 = https.get({
         hostname: 'api.adsbdb.com',
         path: `/v0/callsign/${encodeURIComponent(callsign)}`,
@@ -1072,36 +1108,41 @@ app.get('/route', rateLimitRoute, async (req, res) => {
         let data = '';
         r.on('data', c => data += c);
         r.on('end', () => {
+          if (status === 429) {
+            return resolve({ route: null, rateLimited: true });
+          }
           try {
             const json = JSON.parse(data);
             const fr = json?.response?.flightroute;
             if (fr?.origin?.iata_code && fr?.destination?.iata_code) {
-              resolve({
+              resolve({ route: {
                 orig: { iata: fr.origin.iata_code,      icao: fr.origin.icao_code      || '', city: fr.origin.municipality      || fr.origin.name      || '' },
                 dest: { iata: fr.destination.iata_code, icao: fr.destination.icao_code || '', city: fr.destination.municipality || fr.destination.name || '' }
-              });
+              }});
             } else {
-              // DIAGNOSE: adsbdb lieferte keine Route -- Status und kurzen Body loggen
-              console.warn(`adsbdb no-route ${callsign}: HTTP ${status} body=${data.slice(0, 200)}`);
-              resolve(null);
+              resolve({ route: null, rateLimited: false }); // bestaetigt: keine Route
             }
           } catch {
-            console.warn(`adsbdb parse-fail ${callsign}: HTTP ${status} body=${data.slice(0, 200)}`);
-            resolve(null);
+            resolve({ route: null, rateLimited: false });
           }
         });
       });
       req3.on('error', reject);
       req3.setTimeout(8000, () => { req3.destroy(); reject(new Error('timeout')); });
     });
-    if (result) {
-      serverRouteCache[callsign] = { route: result, ts: Date.now() };
-      saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
+
+    if (out.rateLimited) {
+      adsbdbCooldownUntil = Date.now() + ADSBDB_COOLDOWN_MS;
+      console.warn(`adsbdb 429 -- Cooldown ${ADSBDB_COOLDOWN_MS / 1000}s aktiv`);
+      return res.json({ route: null, source: 'ratelimited' }); // 429 NICHT cachen
     }
-    return res.json({ route: result, source: 'adsbdb' });
+    // Treffer und bestaetigte "keine Route" cachen, damit adsbdb nicht erneut belastet wird
+    serverRouteCache[callsign] = { route: out.route, ts: Date.now() };
+    saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
+    return res.json({ route: out.route, source: 'adsbdb' });
   } catch(e) {
     console.warn(`adsbdb error for ${callsign}: ${e.message}`);
-    return res.json({ route: null });
+    return res.json({ route: null }); // Timeout/Netzfehler nicht cachen
   }
 });
 
