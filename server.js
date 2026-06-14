@@ -1001,23 +1001,87 @@ setInterval(() => {
   for (const [ip, rec] of routeHits) if (now - rec.windowStart > RL_WINDOW_MS) routeHits.delete(ip);
 }, 5 * 60 * 1000).unref?.();
 
-// adsbdb-Schonung gegen Rate-Limit (429): negatives Caching, Drosselung, Cooldown
+// Routen-Quellen-Schonung gegen Rate-Limit (429): negatives Caching, Drosselung, Cooldown
 const NEG_TTL_MS          = 12 * 60 * 60 * 1000; // "keine Route" 12h cachen
-const ADSBDB_MIN_INTERVAL = 700;                 // min. Abstand zwischen adsbdb-Calls (ms)
+const ROUTE_MIN_INTERVAL  = 700;                 // min. Abstand zwischen Aufrufen je Quelle (ms)
 const ADSBDB_COOLDOWN_MS  = 90 * 1000;           // nach 429: 90s gar nicht anfragen
 let   adsbdbCooldownUntil = 0;
-let   lastAdsbdbAt        = 0;
-let   adsbdbChain         = Promise.resolve();
+let   adsblolCooldownUntil = 0;
 
-// Serialisiert und entzerrt ausgehende adsbdb-Aufrufe
-function adsbdbThrottle() {
-  const p = adsbdbChain.then(async () => {
-    const wait = Math.max(0, lastAdsbdbAt + ADSBDB_MIN_INTERVAL - Date.now());
-    if (wait) await new Promise(r => setTimeout(r, wait));
-    lastAdsbdbAt = Date.now();
+// Erzeugt eine Drossel, die Aufrufe serialisiert und auf minInterval entzerrt
+function makeThrottle(minInterval) {
+  let last = 0;
+  let chain = Promise.resolve();
+  return function() {
+    const p = chain.then(async () => {
+      const wait = Math.max(0, last + minInterval - Date.now());
+      if (wait) await new Promise(r => setTimeout(r, wait));
+      last = Date.now();
+    });
+    chain = p.catch(() => {});
+    return p;
+  };
+}
+const adsbdbThrottle = makeThrottle(ROUTE_MIN_INTERVAL);
+const adsblolThrottle = makeThrottle(ROUTE_MIN_INTERVAL);
+
+// GET mit JSON-Antwort: liefert { status, json|null }
+function getJson(options, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(options, r => {
+      const status = r.statusCode;
+      let data = '';
+      r.on('data', c => data += c);
+      r.on('end', () => {
+        try { resolve({ status, json: JSON.parse(data) }); }
+        catch { resolve({ status, json: null }); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')); });
   });
-  adsbdbChain = p.catch(() => {});
-  return p;
+}
+
+// Routen-Lookup adsbdb -> { route|null, rateLimited }
+async function lookupAdsbdb(callsign) {
+  await adsbdbThrottle();
+  const { status, json } = await getJson({
+    hostname: 'api.adsbdb.com',
+    path: `/v0/callsign/${encodeURIComponent(callsign)}`,
+    headers: { 'User-Agent': 'adsb-radar/2.0 (+https://adsb-radar.de)' }
+  });
+  if (status === 429) return { route: null, rateLimited: true };
+  const fr = json?.response?.flightroute;
+  if (fr?.origin?.iata_code && fr?.destination?.iata_code) {
+    return { route: {
+      orig: { iata: fr.origin.iata_code,      icao: fr.origin.icao_code      || '', city: fr.origin.municipality      || fr.origin.name      || '' },
+      dest: { iata: fr.destination.iata_code, icao: fr.destination.icao_code || '', city: fr.destination.municipality || fr.destination.name || '' }
+    }, rateLimited: false };
+  }
+  return { route: null, rateLimited: false };
+}
+
+// Routen-Lookup adsb.lol (VRS standing-data) -> { route|null, rateLimited }
+// GET /api/0/route/{callsign}/{lat}/{lng}; lat/lng nur fuer das plausible-Flag, hier egal
+async function lookupAdsblol(callsign) {
+  await adsblolThrottle();
+  const { status, json } = await getJson({
+    hostname: 'api.adsb.lol',
+    path: `/api/0/route/${encodeURIComponent(callsign)}/${HOME_LAT}/${HOME_LON}`,
+    headers: { 'User-Agent': 'adsb-radar/2.0 (+https://adsb-radar.de)' }
+  });
+  if (status === 429) return { route: null, rateLimited: true };
+  const aps = json?._airports;
+  if (json?.airport_codes && json.airport_codes !== 'unknown' && Array.isArray(aps) && aps.length >= 2) {
+    const o = aps[0], d = aps[aps.length - 1];
+    if (o?.iata && d?.iata) {
+      return { route: {
+        orig: { iata: o.iata, icao: o.icao || '', city: o.location || o.name || '' },
+        dest: { iata: d.iata, icao: d.icao || '', city: d.location || d.name || '' }
+      }, rateLimited: false };
+    }
+  }
+  return { route: null, rateLimited: false };
 }
 
 // Abgelaufene Cache-Eintraege stuendlich aufraeumen, damit die Datei nicht waechst
@@ -1092,58 +1156,55 @@ app.get('/route', rateLimitRoute, async (req, res) => {
     }
   }
 
-  // Fallback: adsbdb -- gedrosselt, mit Cooldown und negativem Caching
-  if (Date.now() < adsbdbCooldownUntil) {
-    return res.json({ route: null, source: 'cooldown' });
-  }
-  try {
-    await adsbdbThrottle();
-    const out = await new Promise((resolve, reject) => {
-      const req3 = https.get({
-        hostname: 'api.adsbdb.com',
-        path: `/v0/callsign/${encodeURIComponent(callsign)}`,
-        headers: { 'User-Agent': 'adsb-radar/2.0 (+https://adsb-radar.de)' }
-      }, r => {
-        const status = r.statusCode;
-        let data = '';
-        r.on('data', c => data += c);
-        r.on('end', () => {
-          if (status === 429) {
-            return resolve({ route: null, rateLimited: true });
-          }
-          try {
-            const json = JSON.parse(data);
-            const fr = json?.response?.flightroute;
-            if (fr?.origin?.iata_code && fr?.destination?.iata_code) {
-              resolve({ route: {
-                orig: { iata: fr.origin.iata_code,      icao: fr.origin.icao_code      || '', city: fr.origin.municipality      || fr.origin.name      || '' },
-                dest: { iata: fr.destination.iata_code, icao: fr.destination.icao_code || '', city: fr.destination.municipality || fr.destination.name || '' }
-              }});
-            } else {
-              resolve({ route: null, rateLimited: false }); // bestaetigt: keine Route
-            }
-          } catch {
-            resolve({ route: null, rateLimited: false });
-          }
-        });
-      });
-      req3.on('error', reject);
-      req3.setTimeout(8000, () => { req3.destroy(); reject(new Error('timeout')); });
-    });
+  // Routen-Aufloesung: zuerst adsbdb, dann adsb.lol als Fallback.
+  // Negatives Caching nur, wenn BEIDE Quellen definitiv "keine Route" liefern.
+  let adsbdbDefiniteMiss = false;
+  let adsblolDefiniteMiss = false;
 
-    if (out.rateLimited) {
-      adsbdbCooldownUntil = Date.now() + ADSBDB_COOLDOWN_MS;
-      console.warn(`adsbdb 429 -- Cooldown ${ADSBDB_COOLDOWN_MS / 1000}s aktiv`);
-      return res.json({ route: null, source: 'ratelimited' }); // 429 NICHT cachen
-    }
-    // Treffer und bestaetigte "keine Route" cachen, damit adsbdb nicht erneut belastet wird
-    serverRouteCache[callsign] = { route: out.route, ts: Date.now() };
-    saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
-    return res.json({ route: out.route, source: 'adsbdb' });
-  } catch(e) {
-    console.warn(`adsbdb error for ${callsign}: ${e.message}`);
-    return res.json({ route: null }); // Timeout/Netzfehler nicht cachen
+  // 1) adsbdb (sofern nicht im Cooldown)
+  if (Date.now() >= adsbdbCooldownUntil) {
+    try {
+      const r1 = await lookupAdsbdb(callsign);
+      if (r1.route) {
+        serverRouteCache[callsign] = { route: r1.route, ts: Date.now() };
+        saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
+        return res.json({ route: r1.route, source: 'adsbdb' });
+      }
+      if (r1.rateLimited) {
+        adsbdbCooldownUntil = Date.now() + ADSBDB_COOLDOWN_MS;
+        console.warn(`adsbdb 429 -- Cooldown ${ADSBDB_COOLDOWN_MS / 1000}s aktiv`);
+      } else {
+        adsbdbDefiniteMiss = true;
+      }
+    } catch(e) { console.warn(`adsbdb error for ${callsign}: ${e.message}`); }
   }
+
+  // 2) adsb.lol Fallback (sofern nicht im Cooldown)
+  if (Date.now() >= adsblolCooldownUntil) {
+    try {
+      const r2 = await lookupAdsblol(callsign);
+      if (r2.route) {
+        serverRouteCache[callsign] = { route: r2.route, ts: Date.now() };
+        saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
+        return res.json({ route: r2.route, source: 'adsblol' });
+      }
+      if (r2.rateLimited) {
+        adsblolCooldownUntil = Date.now() + ADSBDB_COOLDOWN_MS;
+        console.warn(`adsb.lol 429 -- Cooldown ${ADSBDB_COOLDOWN_MS / 1000}s aktiv`);
+      } else {
+        adsblolDefiniteMiss = true;
+      }
+    } catch(e) { console.warn(`adsb.lol error for ${callsign}: ${e.message}`); }
+  }
+
+  // Nur cachen, wenn beide Quellen eindeutig nichts hatten (kein Cooldown/Fehler dazwischen)
+  if (adsbdbDefiniteMiss && adsblolDefiniteMiss) {
+    serverRouteCache[callsign] = { route: null, ts: Date.now() };
+    saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
+    return res.json({ route: null }); // endgueltige Fehlanzeige (Frontend wartet laenger)
+  }
+  // Mindestens eine Quelle war gedrosselt/Fehler -> transient, Frontend bald erneut
+  return res.json({ route: null, source: 'ratelimited' });
 });
 
 app.get('/status', (req, res) => {
