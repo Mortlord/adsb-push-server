@@ -46,7 +46,7 @@ function requireAdmin(req, res, next) {
 
 // Prefixe die über AeroDataBox laufen (Whitelist)
 const AERODATABOX_ONLY = new Set([
-  ^'CFG', 'ENT','FRF','SRN','ABR',  // Sonstige
+  'CFG', 'ENT','FRF','SRN','ABR',  // Sonstige
 ]);
 const COOLDOWN_MS  = 5 * 60 * 1000;
 const STATE_FILE   = '/data/userstate.json';
