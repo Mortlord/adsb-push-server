@@ -1122,6 +1122,13 @@ app.get('/route', rateLimitRoute, async (req, res) => {
     return res.json({ route: local, source: 'local' });
   }
 
+  // Treffsichere Abgrenzung: ist der Praefix definitiv KEIN bekannter Airline-Code,
+  // handelt es sich um eine Registrierung/Privat -> keine Route, gar nicht extern fragen.
+  // Nur ueberspringen, wenn die Airline-Liste geladen ist (sonst im Zweifel weiter extern).
+  if (routedb.isAirlineCallsign(callsign) === false) {
+    return res.json({ route: null, source: 'local-miss' });
+  }
+
   // AeroDataBox nur für Whitelist-Prefixe
   if (AERODATABOX_ONLY.has(prefix) && AERODATABOX_KEY) {
     try {
@@ -1186,8 +1193,11 @@ app.get('/route', rateLimitRoute, async (req, res) => {
     } catch(e) { console.warn(`adsbdb error for ${callsign}: ${e.message}`); }
   }
 
-  // 2) adsb.lol Fallback (sofern nicht im Cooldown)
-  if (Date.now() >= adsblolCooldownUntil) {
+  // 2) adsb.lol nur, wenn die lokale DB NICHT bereit ist. Bei bereiter lokaler DB ist
+  //    adsb.lol redundant (dieselben VRS-Daten) und wird als definitiver Miss gewertet.
+  if (routedb.routeDBStats().ready) {
+    adsblolDefiniteMiss = true;
+  } else if (Date.now() >= adsblolCooldownUntil) {
     try {
       const r2 = await lookupAdsblol(callsign);
       if (r2.route) {

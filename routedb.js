@@ -12,7 +12,9 @@ const TARBALL_URL = 'https://codeload.github.com/vradarserver/standing-data/tar.
 
 let routeMap   = new Map(); // CALLSIGN -> "ICAO-ICAO"
 let airportMap = new Map(); // ICAO -> { iata, city }
+let airlineCodes = new Set(); // bekannte Airline-Codes (Code/ICAO/IATA) aus der kanonischen Liste
 let ready      = false;
+let airlineReady = false;
 
 // ---- CSV-Hilfen ---------------------------------------------------------
 // Quote-sicheres Parsen einer einzelnen CSV-Zeile (Flughafennamen koennen Kommas enthalten)
@@ -73,12 +75,29 @@ function addAirportCsv(content, into) {
   }
 }
 
+// Kanonische Airline-Liste: Code,Name,ICAO,IATA,... -> Set aller bekannten Codes.
+// Bewusst grosszuegig (Code, ICAO und IATA), damit kein echter Airline-Flug faelschlich
+// als Registrierung eingestuft wird.
+function addAirlineCsv(content, into) {
+  for (const line of content.split('\n')) {
+    if (!line) continue;
+    const first = line.replace(/^\uFEFF/, '');
+    if (first.startsWith('Code,')) continue; // Header
+    const f = parseCsvLine(first);
+    if (f.length < 4) continue;
+    for (const idx of [0, 2, 3]) { // Code, ICAO, IATA
+      const code = (f[idx] || '').trim().toUpperCase();
+      if (code) into.airlines.add(code);
+    }
+  }
+}
+
 // ---- Download + Flatten via Tarball-Stream ------------------------------
 // Streamt das gzippte Tarball, filtert nur die noetigen CSVs heraus.
 function buildFromTarball() {
   const tar = require('tar');
   return new Promise((resolve, reject) => {
-    const into = { routes: new Map(), airports: new Map() };
+    const into = { routes: new Map(), airports: new Map(), airlines: new Set() };
     const parser = new tar.Parser();
     let settled = false;
     const fail = (e) => { if (!settled) { settled = true; reject(e); } };
@@ -87,13 +106,15 @@ function buildFromTarball() {
       const p = entry.path; // z.B. standing-data-main/routes/schema-01/B/BAW-all.csv
       const isRoute   = /\/routes\/schema-01\/[^/]+\/.+\.csv$/.test(p);
       const isAirport = /\/airports\/schema-01\/[^/]+\/.+\.csv$/.test(p);
-      if (!isRoute && !isAirport) { entry.resume(); return; }
+      const isAirline = /\/airlines\/schema-01\/airlines\.csv$/.test(p);
+      if (!isRoute && !isAirport && !isAirline) { entry.resume(); return; }
       const chunks = [];
       entry.on('data', c => chunks.push(c));
       entry.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
         if (isRoute) addRouteCsv(text, into);
-        else addAirportCsv(text, into);
+        else if (isAirport) addAirportCsv(text, into);
+        else addAirlineCsv(text, into);
       });
       entry.on('error', fail);
     });
@@ -120,6 +141,7 @@ function flatPaths(dataDir) {
   return {
     routes:   path.join(dataDir, 'vrs-routes.csv'),
     airports: path.join(dataDir, 'vrs-airports.json'),
+    airlines: path.join(dataDir, 'vrs-airlines.txt'),
     meta:     path.join(dataDir, 'vrs-meta.json'),
   };
 }
@@ -132,7 +154,9 @@ function writeFlat(dataDir, into) {
   fs.renameSync(p.routes + '.tmp', p.routes);
   fs.writeFileSync(p.airports + '.tmp', JSON.stringify(Object.fromEntries(into.airports)));
   fs.renameSync(p.airports + '.tmp', p.airports);
-  fs.writeFileSync(p.meta, JSON.stringify({ builtAt: Date.now(), routes: into.routes.size, airports: into.airports.size }));
+  fs.writeFileSync(p.airlines + '.tmp', [...into.airlines].join('\n'));
+  fs.renameSync(p.airlines + '.tmp', p.airlines);
+  fs.writeFileSync(p.meta, JSON.stringify({ builtAt: Date.now(), routes: into.routes.size, airports: into.airports.size, airlines: into.airlines.size }));
 }
 
 function loadFlat(dataDir) {
@@ -148,7 +172,13 @@ function loadFlat(dataDir) {
   routeMap = rm;
   airportMap = am;
   ready = true;
-  return { routes: rm.size, airports: am.size };
+  // Airline-Codes (optional; aeltere Caches haben die Datei evtl. noch nicht)
+  try {
+    const aTxt = fs.readFileSync(p.airlines, 'utf8');
+    airlineCodes = new Set(aTxt.split('\n').filter(Boolean));
+    airlineReady = airlineCodes.size > 0;
+  } catch { airlineReady = false; }
+  return { routes: rm.size, airports: am.size, airlines: airlineCodes.size };
 }
 
 function flatAgeDays(dataDir) {
@@ -166,8 +196,10 @@ async function rebuild(dataDir) {
   writeFlat(dataDir, into);
   routeMap = into.routes;
   airportMap = into.airports;
+  airlineCodes = into.airlines;
+  airlineReady = into.airlines.size > 0;
   ready = true;
-  console.log(`[routedb] aufgebaut: ${into.routes.size} Routen, ${into.airports.size} Flughaefen`);
+  console.log(`[routedb] aufgebaut: ${into.routes.size} Routen, ${into.airports.size} Flughaefen, ${into.airlines.size} Airline-Codes`);
 }
 
 // ---- Oeffentliche API ---------------------------------------------------
@@ -181,8 +213,8 @@ async function initRouteDB(dataDir = '/data', refreshDays = 7) {
       console.log(`[routedb] aus Cache geladen: ${n.routes} Routen, ${n.airports} Flughaefen`);
     } catch (e) { console.warn('[routedb] Cache-Laden fehlgeschlagen:', e.message); }
   }
-  // Erstaufbau oder Aktualisierung im Hintergrund, blockiert den Start nicht
-  if (!haveFlat || flatAgeDays(dataDir) > refreshDays) {
+  // Erstaufbau, Aktualisierung oder fehlende Airline-Liste -> im Hintergrund neu aufbauen
+  if (!haveFlat || flatAgeDays(dataDir) > refreshDays || !airlineReady) {
     rebuild(dataDir).catch(e => console.warn('[routedb] Aufbau fehlgeschlagen:', e.message));
   }
   // Woechentliche Aktualisierung
@@ -210,11 +242,22 @@ function resolveLocalRoute(callsign) {
   };
 }
 
-function routeDBStats() { return { ready, routes: routeMap.size, airports: airportMap.size }; }
+function routeDBStats() { return { ready, routes: routeMap.size, airports: airportMap.size, airlineReady, airlines: airlineCodes.size }; }
+
+// Treffsichere Abgrenzung: liefert
+//   true  -> Praefix ist ein bekannter Airline-Code (Linienflug, extern lohnt sich)
+//   false -> definitiv kein Airline-Code (Registrierung/Privat, extern ueberspringen)
+//   null  -> Liste nicht geladen, keine Aussage (im Zweifel NICHT ueberspringen)
+function isAirlineCallsign(callsign) {
+  if (!airlineReady) return null;
+  const m = normalizeCallsign(callsign).match(/^([A-Z]{2,3}|[A-Z][0-9]|[0-9][A-Z])(\d[A-Z0-9]*)$/);
+  if (!m) return false; // sieht nicht wie Airline-Code plus Nummer aus
+  return airlineCodes.has(m[1]);
+}
 
 // Testhilfe: aus lokalem Verzeichnis aufbauen (ohne Download)
 function _buildFromDir(dir) {
-  const into = { routes: new Map(), airports: new Map() };
+  const into = { routes: new Map(), airports: new Map(), airlines: new Set() };
   const walk = (d, kind) => {
     for (const name of fs.readdirSync(d)) {
       const fp = path.join(d, name);
@@ -223,17 +266,19 @@ function _buildFromDir(dir) {
       else if (name.endsWith('.csv')) {
         const txt = fs.readFileSync(fp, 'utf8');
         if (kind === 'route') addRouteCsv(txt, into);
-        else addAirportCsv(txt, into);
+        else if (kind === 'airport') addAirportCsv(txt, into);
+        else addAirlineCsv(txt, into);
       }
     }
   };
   walk(path.join(dir, 'routes/schema-01'), 'route');
   walk(path.join(dir, 'airports/schema-01'), 'airport');
+  walk(path.join(dir, 'airlines/schema-01'), 'airline');
   return into;
 }
 
 module.exports = {
-  initRouteDB, resolveLocalRoute, routeDBStats, normalizeCallsign,
-  _buildFromDir, _setMaps: (r, a) => { routeMap = r; airportMap = a; ready = true; },
+  initRouteDB, resolveLocalRoute, routeDBStats, normalizeCallsign, isAirlineCallsign,
+  _buildFromDir, _setMaps: (r, a, al) => { routeMap = r; airportMap = a; ready = true; if (al) { airlineCodes = al; airlineReady = al.size > 0; } },
   _writeFlat: writeFlat, _loadFlat: loadFlat, _buildFromTarball: buildFromTarball,
 };
