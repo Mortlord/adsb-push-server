@@ -1005,8 +1005,10 @@ setInterval(() => {
 // Routen-Quellen-Schonung gegen Rate-Limit (429): negatives Caching, Drosselung, Cooldown
 const NEG_TTL_MS          = 12 * 60 * 60 * 1000; // "keine Route" 12h cachen
 const ROUTE_MIN_INTERVAL  = 700;                 // min. Abstand zwischen Aufrufen je Quelle (ms)
-const ADSBDB_COOLDOWN_MS  = 90 * 1000;           // nach 429: 90s gar nicht anfragen
+const ADSBDB_COOLDOWN_MS  = 90 * 1000;           // Basis-Pause nach 429 (auch adsb.lol)
+const ADSBDB_COOLDOWN_MAX = 60 * 60 * 1000;      // Obergrenze des Backoffs: 1h
 let   adsbdbCooldownUntil = 0;
+let   adsbdbCooldownMs    = ADSBDB_COOLDOWN_MS;  // aktuelle Backoff-Dauer (verdoppelt sich je 429)
 let   adsblolCooldownUntil = 0;
 
 // Erzeugt eine Drossel, die Aufrufe serialisiert und auf minInterval entzerrt
@@ -1180,14 +1182,18 @@ app.get('/route', rateLimitRoute, async (req, res) => {
     try {
       const r1 = await lookupAdsbdb(callsign);
       if (r1.route) {
+        adsbdbCooldownMs = ADSBDB_COOLDOWN_MS; // adsbdb antwortet -> Backoff zuruecksetzen
         serverRouteCache[callsign] = { route: r1.route, ts: Date.now() };
         saveJSON(ROUTE_CACHE_FILE, serverRouteCache);
         return res.json({ route: r1.route, source: 'adsbdb' });
       }
       if (r1.rateLimited) {
-        adsbdbCooldownUntil = Date.now() + ADSBDB_COOLDOWN_MS;
-        console.warn(`adsbdb 429 -- Cooldown ${ADSBDB_COOLDOWN_MS / 1000}s aktiv`);
+        // 429: aktuelle Pause setzen, dann Backoff fuer das naechste Mal verdoppeln
+        adsbdbCooldownUntil = Date.now() + adsbdbCooldownMs;
+        console.warn(`adsbdb 429 -- Cooldown ${Math.round(adsbdbCooldownMs / 1000)}s aktiv`);
+        adsbdbCooldownMs = Math.min(adsbdbCooldownMs * 2, ADSBDB_COOLDOWN_MAX);
       } else {
+        adsbdbCooldownMs = ADSBDB_COOLDOWN_MS; // normale Antwort (keine Route) -> Backoff zuruecksetzen
         adsbdbDefiniteMiss = true;
       }
     } catch(e) { console.warn(`adsbdb error for ${callsign}: ${e.message}`); }
