@@ -4,6 +4,7 @@ const https   = require('https');
 const fs      = require('fs');
 const crypto  = require('crypto');
 const path    = require('path');
+const routedb = require('./routedb');
 
 const app = express();
 
@@ -1115,6 +1116,12 @@ app.get('/route', rateLimitRoute, async (req, res) => {
     }
   }
 
+  // Lokale Routen-DB zuerst (kostenlos, kein externer Aufruf, kein Rate-Limit)
+  const local = routedb.resolveLocalRoute(callsign);
+  if (local) {
+    return res.json({ route: local, source: 'local' });
+  }
+
   // AeroDataBox nur für Whitelist-Prefixe
   if (AERODATABOX_ONLY.has(prefix) && AERODATABOX_KEY) {
     try {
@@ -1235,4 +1242,7 @@ app.get('/aircraft', rateLimitRoute, async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
+// Lokale Routen-DB laden (Cache sofort, woechentliche Aktualisierung im Hintergrund)
+routedb.initRouteDB('/data', 7).catch(e => console.warn('[routedb] init:', e.message));
+
 app.listen(port, () => console.log(`Server running on port ${port}`));
