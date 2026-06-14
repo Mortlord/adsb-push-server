@@ -978,29 +978,35 @@ app.get('/setup-webhook', requireAdmin, async (req, res) => {
 });
 
 // ── Route-Auflösung ───────────────────────────────────────────
-// Einfacher In-Memory-Rate-Limiter pro IP (Punkt 5)
-const routeHits = new Map(); // ip -> { count, windowStart }
+// In-Memory-Rate-Limiter pro IP. Fabrik, damit /route und /aircraft eigene Grenzen haben.
 const RL_WINDOW_MS = 60 * 1000;
-const RL_MAX       = 30; // max. 30 Route-Anfragen pro IP und Minute
-function rateLimitRoute(req, res, next) {
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-  const now = Date.now();
-  const rec = routeHits.get(ip);
-  if (!rec || now - rec.windowStart > RL_WINDOW_MS) {
-    routeHits.set(ip, { count: 1, windowStart: now });
+function makeRateLimiter(max) {
+  const hits = new Map(); // ip -> { count, windowStart }
+  // Map gelegentlich aufraeumen, damit sie nicht unbegrenzt waechst
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, rec] of hits) if (now - rec.windowStart > RL_WINDOW_MS) hits.delete(ip);
+  }, 5 * 60 * 1000).unref?.();
+  return function(req, res, next) {
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+    const now = Date.now();
+    const rec = hits.get(ip);
+    if (!rec || now - rec.windowStart > RL_WINDOW_MS) {
+      hits.set(ip, { count: 1, windowStart: now });
+      return next();
+    }
+    if (rec.count >= max) {
+      return res.status(429).json({ route: null, error: 'rate limit' });
+    }
+    rec.count++;
     return next();
-  }
-  if (rec.count >= RL_MAX) {
-    return res.status(429).json({ route: null, error: 'rate limit' });
-  }
-  rec.count++;
-  return next();
+  };
 }
-// Map gelegentlich aufraeumen, damit sie nicht unbegrenzt waechst
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, rec] of routeHits) if (now - rec.windowStart > RL_WINDOW_MS) routeHits.delete(ip);
-}, 5 * 60 * 1000).unref?.();
+// /route kommt jetzt fast immer aus der lokalen DB (in-memory, sehr guenstig) und wird
+// pro Flugzeug aufgerufen, also beim Laden stossweise -> grosszuegige Grenze.
+const rateLimitRoute = makeRateLimiter(600);
+// /aircraft ist der externe Karten-Feed, nur ein Aufruf pro Aktualisierungszyklus -> knapper.
+const rateLimitAircraft = makeRateLimiter(60);
 
 // Routen-Quellen-Schonung gegen Rate-Limit (429): negatives Caching, Drosselung, Cooldown
 const NEG_TTL_MS          = 12 * 60 * 60 * 1000; // "keine Route" 12h cachen
@@ -1240,7 +1246,7 @@ app.get('/airlines', (req, res) => {
 
 // Eigener Aircraft-Proxy als Fallback statt corsproxy.io (Punkt 7)
 // Akzeptiert nur numerische Koordinaten und ruft ausschliesslich die bekannten Upstreams auf
-app.get('/aircraft', rateLimitRoute, async (req, res) => {
+app.get('/aircraft', rateLimitAircraft, async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
   const radius = Math.min(parseInt(req.query.radius, 10) || 40, 250);

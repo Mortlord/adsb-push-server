@@ -210,7 +210,7 @@ async function initRouteDB(dataDir = '/data', refreshDays = 7) {
   if (haveFlat) {
     try {
       const n = loadFlat(dataDir);
-      console.log(`[routedb] aus Cache geladen: ${n.routes} Routen, ${n.airports} Flughaefen`);
+      console.log(`[routedb] aus Cache geladen: ${n.routes} Routen, ${n.airports} Flughaefen, ${n.airlines} Airline-Codes`);
     } catch (e) { console.warn('[routedb] Cache-Laden fehlgeschlagen:', e.message); }
   }
   // Erstaufbau, Aktualisierung oder fehlende Airline-Liste -> im Hintergrund neu aufbauen
