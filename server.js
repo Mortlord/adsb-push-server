@@ -10,12 +10,15 @@ const app = express();
 
 // CORS auf die eigene Origin einschraenken statt '*' (Punkt 1/6/7)
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  'https://adsb-radar.de,https://www.adsb-radar.de').split(',').map(s => s.trim()).filter(Boolean);
+  'https://adsb-radar.de,https://www.adsb-radar.de,https://mortlord.github.io').split(',').map(s => s.trim()).filter(Boolean);
+console.log('CORS erlaubte Origins:', JSON.stringify(ALLOWED_ORIGINS));
 app.use(cors({
   origin(origin, cb) {
     // Anfragen ohne Origin (Cron, Telegram, curl) zulassen, Browser-Origins nur aus Whitelist
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    return cb(new Error('Origin not allowed'));
+    // Sauber ablehnen statt zu werfen: kein Stacktrace, kein 500, der Browser blockt anhand fehlender CORS-Header
+    console.warn(`CORS: Origin abgelehnt: ${origin}`);
+    return cb(null, false);
   }
 }));
 app.use(express.json({ limit: '64kb' }));
@@ -46,7 +49,7 @@ function requireAdmin(req, res, next) {
 
 // Prefixe die über AeroDataBox laufen (Whitelist)
 const AERODATABOX_ONLY = new Set([
-  'CFG', 'ENT','FRF','SRN','ABR',  // Sonstige
+  'ENT','FRF','SRN','ABR',  // Sonstige
 ]);
 const COOLDOWN_MS  = 5 * 60 * 1000;
 const STATE_FILE   = '/data/userstate.json';
