@@ -1243,6 +1243,27 @@ app.get('/status', (req, res) => {
   res.json({ status: 'ok', users: Object.keys(userState).length });
 });
 
+// Admin-Diagnose: gespeicherten Nutzerzustand einsehen (z.B. Favoriten pruefen)
+// Aufruf: /debug-userstate?key=ADMIN_SECRET            -> Uebersicht aller Nutzer
+//         /debug-userstate?key=ADMIN_SECRET&token=...  -> voller Stand zu einem Token
+app.get('/debug-userstate', requireAdmin, (req, res) => {
+  const token = (req.query.token || '').trim();
+  if (token) {
+    const chatId = chatIdFromToken(token);
+    if (!chatId) return res.json({ found: false, error: 'unbekannter Token' });
+    return res.json({ found: true, chatId, state: userState[chatId] || null });
+  }
+  const out = {};
+  for (const [cid, st] of Object.entries(userState)) {
+    out[cid] = {
+      favorites:    st.favorites || [],
+      alert_radius: st.alert_radius,
+      lastSeen:     st.lastSeen ? new Date(st.lastSeen).toISOString() : null
+    };
+  }
+  return res.json({ users: Object.keys(userState).length, state: out });
+});
+
 app.get('/airlines', (req, res) => {
   res.json(AIRLINE_NAMES);
 });
