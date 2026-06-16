@@ -584,8 +584,10 @@ async function doPoll() {
         saveJSON(CACHE_FILE, notifiedCache);
 
         if (!history[chatId]) history[chatId] = [];
-        const prefix = callsign.slice(0, 3).toUpperCase();
-        const airlineName = AIRLINE_NAMES[prefix] || '';
+        // Nur echte Airline-Rufzeichen (3 Buchstaben + Ziffer); Kennzeichen wie
+        // HBCAT (HB-CAT) oder DEFXF (D-EFXF) bekommen keinen Airline-Namen.
+        const csUp = callsign.trim().toUpperCase();
+        const airlineName = /^[A-Z]{3}[0-9]/.test(csUp) ? (AIRLINE_NAMES[csUp.slice(0, 3)] || '') : '';
         history[chatId].push({ callsign, airline: airlineName, dist: dist.toFixed(1), dir, date: todayStr, time: timeStr, ts: now });
         if (history[chatId].length > 100) history[chatId] = history[chatId].slice(-100);
         saveJSON(HISTORY_FILE, history);
