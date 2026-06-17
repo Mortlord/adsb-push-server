@@ -379,7 +379,8 @@ const HEALTH_FILE   = '/data/healthstate.json';
 const VISITORS_FILE = '/data/visitors.json';
 
 const HEALTH_ALERTS    = (process.env.HEALTH_ALERTS || '1') !== '0';
-const POLL_STALL_MIN   = parseInt(process.env.POLL_STALL_MIN   || '5',  10); // Poll seit X Min nicht gelaufen
+const POLL_STALL_MIN   = parseInt(process.env.POLL_STALL_MIN   || '10', 10);   // absolute Untergrenze (Min)
+const POLL_STALL_FACTOR= parseFloat(process.env.POLL_STALL_FACTOR || '3');      // Alarm = Faktor × gemessener Poll-Abstand
 const EMPTY_FEED_POLLS = parseInt(process.env.EMPTY_FEED_POLLS || '10', 10); // X leere Tag-Abfragen in Folge
 const MEM_ALERT_MB     = parseInt(process.env.MEM_ALERT_MB     || '0',  10); // 0 = aus
 const VISITOR_SALT     = process.env.HEALTH_SALT || ADMIN_SECRET || 'adsb-radar';
@@ -613,6 +614,10 @@ async function doPoll() {
   }
 
   // Heim-Zählung: Callsign-Prefixe im 20nm Radius um Ziegelweg 11
+  // Tatsächlichen Poll-Abstand messen (für die adaptive Stillstand-Erkennung)
+  if (health.lastPollTs) {
+    health.recentGaps = (health.recentGaps || []).concat(now - health.lastPollTs).slice(-10);
+  }
   health.lastPollTs = now;
   try {
     const homeData = await fetchAircraft(HOME_LAT, HOME_LON, HOME_RADIUS + 5);
@@ -1331,9 +1336,15 @@ routedb.initRouteDB('/data', 7, rebuildAirlineNames).catch(e => console.warn('[r
 setInterval(async () => {
   const now = Date.now();
   if (health.lastPollTs) {
-    const stalledMin = (now - health.lastPollTs) / 60000;
-    await setHealthFlag('stalled', stalledMin >= POLL_STALL_MIN,
-      `⚠️ Poll-Stillstand: seit ${Math.round(stalledMin)} Min kein Poll. Läuft der Railway-Cron noch?`,
+    const sinceMs = now - health.lastPollTs;
+    // Schwelle adaptiv: Vielfaches des gemessenen Poll-Abstands, mindestens POLL_STALL_MIN.
+    // Bis Abstände gemessen sind, wird die Untergrenze als angenommener Abstand genutzt.
+    const observedMs = (health.recentGaps && health.recentGaps.length)
+      ? Math.max(...health.recentGaps)
+      : POLL_STALL_MIN * 60000 / POLL_STALL_FACTOR;
+    const stallMs = Math.max(POLL_STALL_MIN * 60000, Math.round(observedMs * POLL_STALL_FACTOR));
+    await setHealthFlag('stalled', sinceMs >= stallMs,
+      `⚠️ Poll-Stillstand: seit ${Math.round(sinceMs/60000)} Min kein Poll (üblich ~${Math.round(observedMs/60000)} Min). Läuft der Railway-Cron noch?`,
       '✅ Poll läuft wieder.');
   }
   if (MEM_ALERT_MB > 0) {
