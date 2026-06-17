@@ -120,8 +120,8 @@ const HB_FILE         = '/data/hbcallsigns.json';
 const ROUTE_CACHE_FILE = '/data/routecache.json';
 
 // Heimadresse aus Env-Vars statt hartkodiert (Punkt 8)
-const HOME_LAT    = parseFloat(process.env.HOME_LAT || '47.9732');
-const HOME_LON    = parseFloat(process.env.HOME_LON || '7.8319');
+const HOME_LAT    = parseFloat(process.env.HOME_LAT || '0');  // echten Wert als Railway-Variable setzen
+const HOME_LON    = parseFloat(process.env.HOME_LON || '0');  // echten Wert als Railway-Variable setzen
 const HOME_RADIUS = parseInt(process.env.HOME_RADIUS || '20', 10); // nm
 
 let userState     = loadJSON(STATE_FILE,   {});
@@ -328,9 +328,9 @@ async function fetchPlanespottersPhoto(hex, reg, type) {
   });
 }
 
-function fetchFromUrl(url) {
+function fetchFromUrl(url, extraHeaders) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'adsb-radar/2.0' } }, res => {
+    const req = https.get(url, { headers: { 'User-Agent': 'adsb-radar/2.0', ...(extraHeaders || {}) } }, res => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
@@ -386,6 +386,15 @@ const MEM_ALERT_MB     = parseInt(process.env.MEM_ALERT_MB     || '0',  10); // 
 const VISITOR_SALT     = process.env.HEALTH_SALT || ADMIN_SECRET || 'adsb-radar';
 const FEEDER_CHECK     = (process.env.FEEDER_CHECK || '1') !== '0';          // Heimfeeder überwachen
 const FEEDER_URL       = process.env.FEEDER_URL || 'https://feeder.adsb-radar.de/data/aircraft.json';
+const FEEDER_LAT       = parseFloat(process.env.FEEDER_LAT || process.env.HOME_LAT || '0');
+const FEEDER_LON       = parseFloat(process.env.FEEDER_LON || process.env.HOME_LON || '0');
+// Optionale Auth-Header, damit nur dieser Server den (abgesicherten) Feeder lesen darf.
+// Cloudflare Access Service-Token: FEEDER_AUTH_HEADER='CF-Access-Client-Id',
+// FEEDER_AUTH_HEADER2='CF-Access-Client-Secret' mit den jeweiligen Werten setzen.
+const FEEDER_AUTH = {};
+if (process.env.FEEDER_AUTH_HEADER  && process.env.FEEDER_AUTH_VALUE)  FEEDER_AUTH[process.env.FEEDER_AUTH_HEADER]  = process.env.FEEDER_AUTH_VALUE;
+if (process.env.FEEDER_AUTH_HEADER2 && process.env.FEEDER_AUTH_VALUE2) FEEDER_AUTH[process.env.FEEDER_AUTH_HEADER2] = process.env.FEEDER_AUTH_VALUE2;
+function feederHeaders(){ return FEEDER_AUTH; }
 const FEEDER_STALE_SEC = parseInt(process.env.FEEDER_STALE_SEC || '120', 10); // Daten älter -> gestört
 const FEEDER_FAIL_N    = parseInt(process.env.FEEDER_FAIL_N    || '2',   10); // Fehlschläge in Folge -> offline
 
@@ -441,7 +450,7 @@ async function checkFeeder(){
   if (!FEEDER_CHECK) return;
   let ok = false;
   try {
-    const j = await fetchFromUrl(FEEDER_URL);
+    const j = await fetchFromUrl(FEEDER_URL, feederHeaders());
     const fnow = (j && typeof j.now === 'number') ? j.now : null;
     if (fnow == null) {
       feederLastReason = 'unerwartete Antwort';
@@ -613,7 +622,7 @@ async function doPoll() {
     console.log('Nightly cleanup done');
   }
 
-  // Heim-Zählung: Callsign-Prefixe im 20nm Radius um Ziegelweg 11
+  // Heim-Zählung: Callsign-Prefixe im konfigurierten Heimradius (HOME_LAT/HOME_LON)
   // Tatsächlichen Poll-Abstand messen (für die adaptive Stillstand-Erkennung)
   if (health.lastPollTs) {
     health.recentGaps = (health.recentGaps || []).concat(now - health.lastPollTs).slice(-10);
@@ -1310,6 +1319,22 @@ app.get('/airlines', (req, res) => {
 
 // Eigener Aircraft-Proxy als Fallback statt corsproxy.io (Punkt 7)
 // Akzeptiert nur numerische Koordinaten und ruft ausschliesslich die bekannten Upstreams auf
+// Heimfeeder-Proxy: nur für den Owner (per Token). Hält Feed + Koordinaten aus dem
+// öffentlichen Client heraus. ?check=1 liefert nur den Verfügbarkeitsstatus (kein Abruf).
+app.get('/feeder', async (req, res) => {
+  const chat_id = chatIdFromToken(req.query.token);
+  if (!chat_id || chat_id !== OWNER_CHAT_ID) return res.status(403).json({ ok: false, error: 'forbidden' });
+  if (req.query.check) {
+    return res.json({ ok: true, online: !health.flags.feeder, lat: FEEDER_LAT, lon: FEEDER_LON });
+  }
+  try {
+    const j = await fetchFromUrl(FEEDER_URL, feederHeaders());
+    res.json({ ok: true, lat: FEEDER_LAT, lon: FEEDER_LON, now: j.now, aircraft: Array.isArray(j.aircraft) ? j.aircraft : [] });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: 'feeder unreachable' });
+  }
+});
+
 app.get('/aircraft', rateLimitAircraft, async (req, res) => {
   recordVisitor(req);
   const lat = parseFloat(req.query.lat);
