@@ -372,6 +372,100 @@ function bearing(lat1, lon1, lat2, lon2) {
 
 const OWNER_CHAT_ID = process.env.OWNER_CHAT_ID || '';
 
+// ════════════════════════════════════════════════════════════
+// SERVER-WÄCHTER (Ereignis-Alerts) + BESUCHERZÄHLER
+// ════════════════════════════════════════════════════════════
+const HEALTH_FILE   = '/data/healthstate.json';
+const VISITORS_FILE = '/data/visitors.json';
+
+const HEALTH_ALERTS    = (process.env.HEALTH_ALERTS || '1') !== '0';
+const POLL_STALL_MIN   = parseInt(process.env.POLL_STALL_MIN   || '5',  10); // Poll seit X Min nicht gelaufen
+const EMPTY_FEED_POLLS = parseInt(process.env.EMPTY_FEED_POLLS || '10', 10); // X leere Tag-Abfragen in Folge
+const MEM_ALERT_MB     = parseInt(process.env.MEM_ALERT_MB     || '0',  10); // 0 = aus
+const VISITOR_SALT     = process.env.HEALTH_SALT || ADMIN_SECRET || 'adsb-radar';
+
+// Gesundheits-Laufzeitwerte; Flags/Zeitstempel persistiert gegen Neustart-Doppelalarme,
+// die reinen Laufzeitfelder werden bei jedem Start zurückgesetzt (Karenz nach Neustart).
+let health = loadJSON(HEALTH_FILE, {});
+health.flags     = health.flags     || { source:false, empty:false, stalled:false, mem:false, adsbdb:false };
+health.alertsLog = health.alertsLog || [];
+health.lastPollTs        = 0;
+health.lastPollOk        = false;
+health.lastAircraftCount = 0;
+health.consecutiveEmpty  = 0;
+function saveHealth(){ saveJSON(HEALTH_FILE, health); }
+
+// Besucher: Hash -> letzter Zeitstempel (rollierendes 24h-Fenster, täglich rotierendes Salt).
+// Es wird nie die IP gespeichert, nur ein gesalzener Hash -> datenschutzfreundlich.
+let visitors = loadJSON(VISITORS_FILE, {});
+function visitorHash(ip){
+  const day = new Date().toISOString().slice(0,10);
+  return crypto.createHash('sha256').update(`${VISITOR_SALT}:${day}:${ip}`).digest('hex').slice(0,16);
+}
+function recordVisitor(req){
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  if (ip) visitors[visitorHash(ip)] = Date.now();
+}
+function uniqueVisitors24h(){
+  const cutoff = Date.now() - 24*60*60*1000;
+  let n = 0;
+  for (const h of Object.keys(visitors)) { if (visitors[h] < cutoff) delete visitors[h]; else n++; }
+  return n;
+}
+
+// Alert an den Owner; nur bei Zustandswechsel aufgerufen
+async function healthAlert(text){
+  if (!HEALTH_ALERTS || !OWNER_CHAT_ID) return;
+  health.alertsLog = (health.alertsLog || []).filter(ts => ts > Date.now() - 24*60*60*1000);
+  health.alertsLog.push(Date.now());
+  saveHealth();
+  try { await sendTelegramMessage(OWNER_CHAT_ID, text); }
+  catch(e){ console.error('healthAlert:', e.message); }
+}
+// Feuert nur an der Flanke: aus->an sendet onText, an->aus sendet offText (optional)
+async function setHealthFlag(key, bad, onText, offText){
+  const was = !!health.flags[key];
+  if (bad && !was)      { health.flags[key] = true;  saveHealth(); await healthAlert(onText); }
+  else if (!bad && was) { health.flags[key] = false; saveHealth(); if (offText) await healthAlert(offText); }
+}
+
+function fmtDuration(ms){
+  const s = Math.floor(ms/1000);
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function buildStatusReport(){
+  const up      = fmtDuration(process.uptime()*1000);
+  const rssMb   = Math.round(process.memoryUsage().rss/1048576);
+  const pollAge = health.lastPollTs ? `vor ${fmtDuration(Date.now()-health.lastPollTs)}` : '—';
+  const src     = health.flags.source ? '⚠️ ausgefallen' : (health.lastPollOk ? '✅ ok' : '—');
+  let rdb = '—';
+  try { const s = routedb.routeDBStats(); if (s && s.ready) rdb = `${s.routes} Routen, ${s.airports} Flughäfen, ${s.airlines} Airlines`; } catch {}
+  const cool = adsbdbCooldownMs > ADSBDB_COOLDOWN_MS ? `Backoff ${Math.round(adsbdbCooldownMs/60000)}m` : 'normal';
+  const cutoff = Date.now() - 24*60*60*1000;
+  let favAlerts = 0;
+  for (const arr of Object.values(history)) for (const e of (arr||[])) if (e.ts && e.ts > cutoff) favAlerts++;
+  const visitors24     = uniqueVisitors24h();
+  const healthAlerts24 = (health.alertsLog||[]).filter(ts => ts > cutoff).length;
+  return [
+    '🩺 <b>Serverstatus</b>',
+    `Uptime: ${up}`,
+    `Letzter Poll: ${pollAge}`,
+    `Datenquelle: ${src}`,
+    `Zuletzt ${health.lastAircraftCount} Flugzeuge (Heimradar)`,
+    `Route-DB: ${rdb}`,
+    `adsbdb: ${cool}`,
+    `Speicher: ${rssMb} MB`,
+    `Nutzer (Tokens): ${Object.keys(userState).length}`,
+    `Favoriten-Alerts 24h: ${favAlerts}`,
+    `Health-Alerts 24h: ${healthAlerts24}`,
+    '',
+    `👥 <b>Unique Besucher 24h: ${visitors24}</b>`
+  ].join('\n');
+}
+
 function buildEveningReport(todayStr, chatId) {
   let report = '';
 
@@ -489,9 +583,20 @@ async function doPoll() {
   }
 
   // Heim-Zählung: Callsign-Prefixe im 20nm Radius um Ziegelweg 11
+  health.lastPollTs = now;
   try {
     const homeData = await fetchAircraft(HOME_LAT, HOME_LON, HOME_RADIUS + 5);
-    for (const ac of (homeData.ac || [])) {
+    const homeAc = homeData.ac || [];
+    health.lastPollOk = true;
+    health.lastAircraftCount = homeAc.length;
+    await setHealthFlag('source', false, null, '✅ Datenquelle wieder erreichbar.');
+    // Leeren-Feed-Wächter nur tagsüber (08–22 Uhr); nachts ist Stille normal
+    health.consecutiveEmpty = (hour >= 8 && hour < 22 && homeAc.length === 0)
+      ? health.consecutiveEmpty + 1 : 0;
+    await setHealthFlag('empty', health.consecutiveEmpty >= EMPTY_FEED_POLLS,
+      `⚠️ Heimradar: seit ${health.consecutiveEmpty} Abfragen 0 Flugzeuge (tagsüber). Feed evtl. gestört.`,
+      '✅ Heimradar empfängt wieder Flugzeuge.');
+    for (const ac of homeAc) {
       const callsign = (ac.flight || '').trim();
       if (!callsign || ac.lat == null || ac.lon == null) continue;
       if (haversine(HOME_LAT, HOME_LON, ac.lat, ac.lon) > HOME_RADIUS) continue;
@@ -531,7 +636,14 @@ async function doPoll() {
     }
     saveJSON(HOME_STATS_FILE, homeStats);
     saveJSON(CACHE_FILE, notifiedCache);
-  } catch(e) { console.error(`Home poll error: ${e.message}`); }
+  } catch(e) {
+    console.error(`Home poll error: ${e.message}`);
+    health.lastPollOk = false;
+    // fetchAircraft wirft nur, wenn primaere UND Fallback-Quelle scheitern
+    await setHealthFlag('source', true,
+      `⚠️ Datenquelle ausgefallen: airplanes.live und adsb.fi nicht erreichbar (${e.message}). Heimradar pausiert.`,
+      null);
+  }
 
   // Alle Flugzeuge im Alert-Radius zählen (unabhängig von Favoriten)
   for (const [chatId, state] of Object.entries(userState)) {
@@ -731,6 +843,12 @@ Trage diesen Code in der App unter ⭐ FAVORITEN ein, um Benachrichtigungen zu a
 
 Du wirst benachrichtigt wenn ein Favorit in deine Alert Zone fliegt (08:00–23:59 Uhr).\n\n<b>Befehle:</b>\n/favoriten – Heutige Favoriten-Sichtungen\n/stats – Häufigste Besucher in deiner Alert Zone`;
     await sendTelegramMessage(chatId, welcomeText);
+    return res.json({ ok: true });
+  }
+
+  if (text === '/status') {
+    if (chatId !== OWNER_CHAT_ID) { await sendTelegramMessage(chatId, 'Nicht berechtigt.'); return res.json({ ok: true }); }
+    await sendTelegramMessage(chatId, buildStatusReport());
     return res.json({ ok: true });
   }
 
@@ -1158,6 +1276,7 @@ app.get('/airlines', (req, res) => {
 // Eigener Aircraft-Proxy als Fallback statt corsproxy.io (Punkt 7)
 // Akzeptiert nur numerische Koordinaten und ruft ausschliesslich die bekannten Upstreams auf
 app.get('/aircraft', rateLimitAircraft, async (req, res) => {
+  recordVisitor(req);
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
   const radius = Math.min(parseInt(req.query.radius, 10) || 40, 250);
@@ -1177,5 +1296,60 @@ app.get('/aircraft', rateLimitAircraft, async (req, res) => {
 const port = process.env.PORT || 3000;
 // Lokale Routen-DB laden (Cache sofort, woechentliche Aktualisierung im Hintergrund)
 routedb.initRouteDB('/data', 7, rebuildAirlineNames).catch(e => console.warn('[routedb] init:', e.message));
+
+// ── Wächter-Intervall: Poll-Stillstand, Speicher, adsbdb-Backoff; Besucher persistieren ──
+setInterval(async () => {
+  const now = Date.now();
+  if (health.lastPollTs) {
+    const stalledMin = (now - health.lastPollTs) / 60000;
+    await setHealthFlag('stalled', stalledMin >= POLL_STALL_MIN,
+      `⚠️ Poll-Stillstand: seit ${Math.round(stalledMin)} Min kein Poll. Läuft der Railway-Cron noch?`,
+      '✅ Poll läuft wieder.');
+  }
+  if (MEM_ALERT_MB > 0) {
+    const rssMb = Math.round(process.memoryUsage().rss / 1048576);
+    await setHealthFlag('mem', rssMb >= MEM_ALERT_MB,
+      `⚠️ Hoher Speicher: ${rssMb} MB (Schwelle ${MEM_ALERT_MB} MB).`,
+      '✅ Speicher wieder normal.');
+  }
+  await setHealthFlag('adsbdb', adsbdbCooldownMs >= 12 * 60 * 1000,
+    `⚠️ adsbdb stark gedrosselt: Backoff ${Math.round(adsbdbCooldownMs/60000)} Min (anhaltende 429).`,
+    '✅ adsbdb wieder normal.');
+  uniqueVisitors24h();                  // 24h-Fenster beschneiden
+  try { saveJSON(VISITORS_FILE, visitors); } catch {}
+}, 60 * 1000).unref?.();
+
+// ── Startup-Meldung (erkennt unerwartete Neustarts / Crash-Loops) ──
+(function(){
+  const now  = Date.now();
+  const last = health.lastStartupTs || 0;
+  const quick = last && (now - last) < 30 * 60 * 1000;
+  health.lastStartupTs = now;
+  saveHealth();
+  if (!HEALTH_ALERTS || !OWNER_CHAT_ID) return;
+  if (quick) {
+    if (!health.lastLoopWarnTs || now - health.lastLoopWarnTs > 30 * 60 * 1000) {
+      health.lastLoopWarnTs = now; saveHealth();
+      healthAlert('⚠️ Server wurde innerhalb von 30 Min erneut gestartet (möglicher Crash-Loop). Bitte Railway-Logs prüfen.');
+    }
+  } else {
+    healthAlert('🔄 ADSB-Server gestartet.');
+  }
+})();
+
+// ── /status nur im Befehlsmenü des Owners registrieren (privat, kein Leak an andere) ──
+(function(){
+  if (!BOT_TOKEN || !OWNER_CHAT_ID) return;
+  const body = JSON.stringify({
+    commands: [{ command: 'status', description: 'Serverstatus & Besucher (24h)' }],
+    scope: { type: 'chat', chat_id: Number(OWNER_CHAT_ID) }
+  });
+  const r = https.request({
+    hostname: 'api.telegram.org', path: `/bot${BOT_TOKEN}/setMyCommands`, method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+  }, resp => { resp.on('data', ()=>{}); resp.on('end', ()=>{}); });
+  r.on('error', e => console.warn('setMyCommands:', e.message));
+  r.write(body); r.end();
+})();
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
