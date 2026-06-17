@@ -383,11 +383,15 @@ const POLL_STALL_MIN   = parseInt(process.env.POLL_STALL_MIN   || '5',  10); // 
 const EMPTY_FEED_POLLS = parseInt(process.env.EMPTY_FEED_POLLS || '10', 10); // X leere Tag-Abfragen in Folge
 const MEM_ALERT_MB     = parseInt(process.env.MEM_ALERT_MB     || '0',  10); // 0 = aus
 const VISITOR_SALT     = process.env.HEALTH_SALT || ADMIN_SECRET || 'adsb-radar';
+const FEEDER_CHECK     = (process.env.FEEDER_CHECK || '1') !== '0';          // Heimfeeder überwachen
+const FEEDER_URL       = process.env.FEEDER_URL || 'https://feeder.adsb-radar.de/data/aircraft.json';
+const FEEDER_STALE_SEC = parseInt(process.env.FEEDER_STALE_SEC || '120', 10); // Daten älter -> gestört
+const FEEDER_FAIL_N    = parseInt(process.env.FEEDER_FAIL_N    || '2',   10); // Fehlschläge in Folge -> offline
 
 // Gesundheits-Laufzeitwerte; Flags/Zeitstempel persistiert gegen Neustart-Doppelalarme,
 // die reinen Laufzeitfelder werden bei jedem Start zurückgesetzt (Karenz nach Neustart).
 let health = loadJSON(HEALTH_FILE, {});
-health.flags     = health.flags     || { source:false, empty:false, stalled:false, mem:false, adsbdb:false };
+health.flags     = health.flags     || { source:false, empty:false, stalled:false, mem:false, adsbdb:false, feeder:false };
 health.alertsLog = health.alertsLog || [];
 health.lastPollTs        = 0;
 health.lastPollOk        = false;
@@ -429,6 +433,31 @@ async function setHealthFlag(key, bad, onText, offText){
   else if (!bad && was) { health.flags[key] = false; saveHealth(); if (offText) await healthAlert(offText); }
 }
 
+// ── Heimfeeder-Wächter: pingt den eigenen Pi und meldet Ausfall/Veraltung ──
+let feederBadCount = 0;
+let feederLastReason = '';
+async function checkFeeder(){
+  if (!FEEDER_CHECK) return;
+  let ok = false;
+  try {
+    const j = await fetchFromUrl(FEEDER_URL);
+    const fnow = (j && typeof j.now === 'number') ? j.now : null;
+    if (fnow == null) {
+      feederLastReason = 'unerwartete Antwort';
+    } else {
+      const ageSec = Math.round(Date.now()/1000 - fnow);
+      if (ageSec > FEEDER_STALE_SEC) feederLastReason = `Daten ${ageSec}s alt`;
+      else ok = true;
+    }
+  } catch(e) {
+    feederLastReason = 'nicht erreichbar';
+  }
+  feederBadCount = ok ? 0 : feederBadCount + 1;
+  await setHealthFlag('feeder', feederBadCount >= FEEDER_FAIL_N,
+    `📡 Heimfeeder offline (${feederLastReason}). feeder.adsb-radar.de antwortet nicht normal.`,
+    '✅ Heimfeeder wieder online.');
+}
+
 function fmtDuration(ms){
   const s = Math.floor(ms/1000);
   const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
@@ -454,6 +483,7 @@ function buildStatusReport(){
     `Uptime: ${up}`,
     `Letzter Poll: ${pollAge}`,
     `Datenquelle: ${src}`,
+    `Heimfeeder: ${FEEDER_CHECK ? (health.flags.feeder ? '⚠️ offline' : '✅ online') : 'Prüfung aus'}`,
     `Zuletzt ${health.lastAircraftCount} Flugzeuge (Heimradar)`,
     `Route-DB: ${rdb}`,
     `adsbdb: ${cool}`,
@@ -594,8 +624,8 @@ async function doPoll() {
     health.consecutiveEmpty = (hour >= 8 && hour < 22 && homeAc.length === 0)
       ? health.consecutiveEmpty + 1 : 0;
     await setHealthFlag('empty', health.consecutiveEmpty >= EMPTY_FEED_POLLS,
-      `⚠️ Heimradar: seit ${health.consecutiveEmpty} Abfragen 0 Flugzeuge (tagsüber). Feed evtl. gestört.`,
-      '✅ Heimradar empfängt wieder Flugzeuge.');
+      `⚠️ airplanes.live liefert tagsüber seit ${health.consecutiveEmpty} Abfragen 0 Flugzeuge um deinen Standort. Evtl. API-Problem.`,
+      '✅ airplanes.live liefert wieder Flugzeuge um deinen Standort.');
     for (const ac of homeAc) {
       const callsign = (ac.flight || '').trim();
       if (!callsign || ac.lat == null || ac.lon == null) continue;
@@ -1315,6 +1345,7 @@ setInterval(async () => {
   await setHealthFlag('adsbdb', adsbdbCooldownMs >= 12 * 60 * 1000,
     `⚠️ adsbdb stark gedrosselt: Backoff ${Math.round(adsbdbCooldownMs/60000)} Min (anhaltende 429).`,
     '✅ adsbdb wieder normal.');
+  await checkFeeder();
   uniqueVisitors24h();                  // 24h-Fenster beschneiden
   try { saveJSON(VISITORS_FILE, visitors); } catch {}
 }, 60 * 1000).unref?.();
