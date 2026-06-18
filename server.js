@@ -192,7 +192,7 @@ const AIRLINE_OVERRIDES = {
   "HNX":"Hankook Airline", "HPY":"Happy Air", "HRM":"Hermes Airlines", "HTH":"Helitt Líneas Aéreas",
   "HZA":"Horizon Airlines", "IBK":"Norwegian Air International (D8)", "IDS":"Indonesia Sky", "IIA":"AIR INDOCHINE",
   "IIR":"INAVIA Internacional", "IMP":"Hellenic Imperial Airways", "INE":"International Europe", "IPV":"Parmiss Airlines (IPV)",
-  "ISS":"Meridiana", "ISX":"Island Spirit", "IWA":"Apache Air", "IXO":"OCEAN AIR CARGO",
+  "ISS":"Meridiana", "IND":"Indian Government", "ISX":"Island Spirit", "IWA":"Apache Air", "IXO":"OCEAN AIR CARGO",
   "JAB":"Air Bagan", "JGN":"Jagson Airlines", "JKK":"Spanair", "JOR":"Blue Air",
   "JPU":"Jupiter Airlines", "JRB":"Jc royal.britannica", "JSF":"Jet Stream Chater", "JSR":"Jusur airways",
   "JTO":"Jettor Airlines", "KBR":"KoralBlue Airlines", "KCU":"Skyline Ulasim Ticaret A.S.", "KDA":"Kendell Airlines",
