@@ -810,6 +810,20 @@ app.post('/update', (req, res) => {
   res.json({ ok: true });
 });
 
+// Favoriten serverseitig abrufen (Server ist die Wahrheit, geräteübergreifend).
+// Client lädt damit beim Start + periodisch, statt die lokale Liste blind zu pushen.
+app.get('/favorites', (req, res) => {
+  const chat_id = chatIdFromToken(req.query.token);
+  if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
+  const st = userState[chat_id];
+  res.json({
+    ok: true,
+    favorites: Array.isArray(st?.favorites) ? st.favorites : [],
+    radius: st?.radius ?? null,
+    alert_radius: st?.alert_radius ?? null
+  });
+});
+
 // Nutzer-Daten löschen (DSGVO Art. 17)
 app.delete('/delete', (req, res) => {
   const { token } = req.body;
