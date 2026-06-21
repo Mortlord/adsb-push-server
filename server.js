@@ -124,6 +124,13 @@ const HOME_LAT    = parseFloat(process.env.HOME_LAT || '0');  // echten Wert als
 const HOME_LON    = parseFloat(process.env.HOME_LON || '0');  // echten Wert als Railway-Variable setzen
 const HOME_RADIUS = parseInt(process.env.HOME_RADIUS || '20', 10); // nm
 
+// Fixer Beobachtungspunkt (alte Heimatadresse) – nur Private App, owner-token-gated.
+// Koordinaten fest im Backend, nicht im Frontend. Als Railway-Variablen setzen.
+const FIXPOINT_LAT = parseFloat(process.env.FIXPOINT_LAT || '0');
+const FIXPOINT_LON = parseFloat(process.env.FIXPOINT_LON || '0');
+const FIXPOINT_OK  = Number.isFinite(FIXPOINT_LAT) && Number.isFinite(FIXPOINT_LON) &&
+                     (FIXPOINT_LAT !== 0 || FIXPOINT_LON !== 0);
+
 let userState     = loadJSON(STATE_FILE,   {});
 let history       = loadJSON(HISTORY_FILE, {});
 let notifiedCache = loadJSON(CACHE_FILE,   {});
@@ -1332,6 +1339,27 @@ app.get('/feeder', async (req, res) => {
     res.json({ ok: true, lat: FEEDER_LAT, lon: FEEDER_LON, now: j.now, aircraft: Array.isArray(j.aircraft) ? j.aircraft : [] });
   } catch (e) {
     res.status(502).json({ ok: false, error: 'feeder unreachable' });
+  }
+});
+
+// Fixer Beobachtungspunkt (alte Heimatadresse): nur für den Owner (per Token).
+// Koordinaten stehen NICHT im Frontend, sondern fest im Backend (FIXPOINT_LAT/LON).
+// ?check=1 liefert nur Verfügbarkeit + Koordinaten (kein Abruf).
+// Sonst: Live-Feed von airplanes.live, zentriert auf den Fixpunkt.
+app.get('/fixpoint', rateLimitAircraft, async (req, res) => {
+  const chat_id = chatIdFromToken(req.query.token);
+  if (!chat_id || chat_id !== OWNER_CHAT_ID) return res.status(403).json({ ok: false, error: 'forbidden' });
+  if (!FIXPOINT_OK) return res.json({ ok: false, error: 'not configured' });
+  if (req.query.check) {
+    return res.json({ ok: true, lat: FIXPOINT_LAT, lon: FIXPOINT_LON });
+  }
+  const radius = Math.min(parseInt(req.query.radius, 10) || 40, 250);
+  try {
+    const data = await fetchAircraft(FIXPOINT_LAT.toFixed(4), FIXPOINT_LON.toFixed(4), radius);
+    res.json({ ok: true, lat: FIXPOINT_LAT, lon: FIXPOINT_LON, ac: Array.isArray(data.ac) ? data.ac : [], total: data.total });
+  } catch (e) {
+    console.error('fixpoint proxy error:', e.message);
+    res.status(502).json({ ok: false, error: 'upstream error' });
   }
 });
 
