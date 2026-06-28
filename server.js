@@ -118,6 +118,7 @@ const HOME_STATS_FILE = '/data/homestats.json';
 const UNKNOWN_FILE    = '/data/unknowncallsigns.json';
 const HB_FILE         = '/data/hbcallsigns.json';
 const ROUTE_CACHE_FILE = '/data/routecache.json';
+const GEOCACHE_FILE    = '/data/geocache.json';
 
 // Heimadresse aus Env-Vars statt hartkodiert (Punkt 8)
 const HOME_LAT    = parseFloat(process.env.HOME_LAT || '0');  // echten Wert als Railway-Variable setzen
@@ -141,6 +142,7 @@ let homeStats         = loadJSON(HOME_STATS_FILE, {});
 let unknownCallsigns  = loadJSON(UNKNOWN_FILE, {});
 // routeCache: { callsign: { orig, dest, ts } } — 7 Tage TTL
 let serverRouteCache  = loadJSON(ROUTE_CACHE_FILE, {});
+let geoCache          = loadJSON(GEOCACHE_FILE, {});
 const ROUTE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 Tage (Punkt 13: Kommentar korrigiert)
 let lastUnknownPrefixes = new Set(); // Prefixe, die beim letzten /unbekannt-Aufruf bekannt waren (Punkt 12: ASCII-Name)
 // hbCallsigns: [callsign, ...] -- Schweizer Privatregister
@@ -1307,6 +1309,62 @@ app.get('/route', rateLimitRoute, async (req, res) => {
   }
   // Mindestens eine Quelle war gedrosselt/Fehler -> transient, Frontend bald erneut
   return res.json({ route: null, source: 'ratelimited' });
+});
+
+// ── Reverse-Geocoding mit Server-Cache (deterministisch über alle Clients) ──
+// Problem ohne Cache: Nominatim läuft hinter einem Lastverteiler; dieselbe Koordinate
+// kann von verschiedenen Instanzen minimal abweichende Hausnummern liefern. Durch den
+// Server-Cache wird jede Koordinate genau EINMAL aufgelöst -> alle Clients sehen dasselbe.
+const rateLimitGeocode = makeRateLimiter(120);
+const geocodeThrottle  = makeThrottle(1100); // Nominatim-Richtlinie: max. 1 Req/Sekunde
+const GEOCACHE_TTL_MS  = 180 * 24 * 60 * 60 * 1000; // 180 Tage; Adressen ändern sich praktisch nie
+
+// Koordinate auf 5 Nachkommastellen runden (~1 m) -> stabiler Cache-Key trotz Float-Jitter
+function geoKey(lat, lon) {
+  return `${(+lat).toFixed(5)},${(+lon).toFixed(5)}`;
+}
+
+function formatNominatim(d) {
+  const a = d.address || {};
+  const line1 = [a.road, a.house_number].filter(Boolean).join(' ');
+  const city  = a.city || a.town || a.village || a.municipality || a.suburb;
+  const line2 = [a.postcode, city].filter(Boolean).join(' ');
+  return [line1, line2].filter(Boolean).join(', ') || d.display_name || '';
+}
+
+// GET /geocode?lat=47.97&lon=7.83
+app.get('/geocode', rateLimitGeocode, async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return res.status(400).json({ address: null, error: 'invalid coordinates' });
+  }
+
+  const key = geoKey(lat, lon);
+  const cached = geoCache[key];
+  if (cached && (Date.now() - cached.ts) < GEOCACHE_TTL_MS) {
+    return res.json({ address: cached.address, source: 'cache' });
+  }
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2`
+              + `&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`;
+    // Sauberer, identifizierender User-Agent erfüllt die Nominatim-Nutzungsbedingungen
+    await geocodeThrottle(); // entzerrt auf max. 1 Req/Sekunde
+    const d = await fetchFromUrl(url, {
+      'User-Agent': 'adsb-radar.de/2.0 (kontakt@adsb-radar.de)',
+      'Accept-Language': 'de'
+    });
+    const address = formatNominatim(d);
+    geoCache[key] = { address, ts: Date.now() };
+    saveJSON(GEOCACHE_FILE, geoCache);
+    return res.json({ address, source: 'nominatim' });
+  } catch (e) {
+    // Bei Fehler ggf. abgelaufenen Cache-Eintrag weiterverwenden statt nichts zu liefern
+    if (cached) return res.json({ address: cached.address, source: 'stale' });
+    console.warn(`geocode error: ${e.message}`);
+    return res.status(502).json({ address: null, error: 'geocode failed' });
+  }
 });
 
 app.get('/status', (req, res) => {
