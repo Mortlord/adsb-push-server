@@ -1,5 +1,7 @@
 const express = require('express');
 const cors    = require('cors');
+const helmet  = require('helmet');
+const rateLimit = require('express-rate-limit');
 const https   = require('https');
 const fs      = require('fs');
 const crypto  = require('crypto');
@@ -7,6 +9,24 @@ const path    = require('path');
 const routedb = require('./routedb');
 
 const app = express();
+
+// Punkt 5: Hinter Cloudflare + Railway laeuft genau eine Proxy-Schicht bis zu uns.
+// 'trust proxy' auf die Anzahl der vertrauenswuerdigen Hops setzen (nicht 'true'),
+// sonst laesst sich die im Rate-Limiter genutzte Client-IP ueber X-Forwarded-For faelschen.
+// Per Env ueberschreibbar, falls sich die Infrastruktur aendert.
+const TRUST_PROXY_HOPS = parseInt(process.env.TRUST_PROXY_HOPS || '1', 10);
+app.set('trust proxy', TRUST_PROXY_HOPS);
+
+// Punkt 3: Sicherheits-Header. Da die API JSON liefert und die HTML-Seiten von
+// GitHub Pages kommen, brauchen wir hier vor allem nosniff, Referrer-Sparsamkeit und
+// das Abschalten von X-Powered-By. CSP fuer die HTML-Seiten wird separat weiter unten
+// gesetzt (nur auf selbst ausgelieferte Seiten, nicht auf JSON-Antworten).
+app.disable('x-powered-by');
+app.use(helmet({
+  contentSecurityPolicy: false,          // eigene, seiten-spezifische CSP unten
+  crossOriginResourcePolicy: false,      // API wird cross-origin (adsb-radar.de) genutzt
+  crossOriginEmbedderPolicy: false
+}));
 
 // CORS auf die eigene Origin einschraenken statt '*' (Punkt 1/6/7)
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
@@ -19,7 +39,10 @@ app.use(cors({
     // Sauber ablehnen statt zu werfen: kein Stacktrace, kein 500, der Browser blockt anhand fehlender CORS-Header
     console.warn(`CORS: Origin abgelehnt: ${origin}`);
     return cb(null, false);
-  }
+  },
+  // Punkt 1: eigenen Auth-Header fuer den CORS-Preflight erlauben, sonst blockt der Browser
+  // die Anfragen aus adsb-radar.de, die den Token jetzt im Header statt in der Query senden.
+  allowedHeaders: ['Content-Type', 'X-Auth-Token']
 }));
 app.use(express.json({ limit: '64kb' }));
 
@@ -167,6 +190,18 @@ function issueToken(chatId) {
 function chatIdFromToken(token) {
   if (!token) return null;
   return tokenIndex[token] || null;
+}
+
+// Punkt 1: Token bevorzugt aus dem Header X-Auth-Token lesen, dann aus dem Body,
+// und nur als Abwaertskompatibilitaets-Fallback aus der Query. Query-Parameter landen
+// in Zugriffs-Logs und im Referer, der Header nicht. Aeltere Clients funktionieren
+// weiter, neue Clients senden ausschliesslich den Header.
+function tokenFromReq(req) {
+  const h = req.get('X-Auth-Token');
+  if (h) return h.trim();
+  if (req.body && typeof req.body.token === 'string' && req.body.token) return req.body.token;
+  if (req.query && typeof req.query.token === 'string' && req.query.token) return req.query.token;
+  return '';
 }
 
 // ICAO-Prefix -> Klarname
@@ -792,11 +827,24 @@ async function doPoll() {
 
 // ── Endpunkte ──────────────────────────────────────────────────
 
+// Punkt 2: Rate-Limiter fuer die token-basierten Endpunkte (/update, /favorites, /delete).
+// Grosszuegig genug fuer normale Nutzung (die App pollt /favorites periodisch), aber
+// eng genug, um Flutung und Brute-Force-Rauschen zu bremsen. Fenster: 15 Minuten.
+// Nutzt die von 'trust proxy' korrekt ermittelte Client-IP (Punkt 5).
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,                       // pro IP und Fenster ueber alle drei Endpunkte
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'rate limit' }
+});
+
 // App schickt Standort + Favoriten
-app.post('/update', (req, res) => {
-  const { token, lat, lon, radius, favorites, alert_radius, timezone } = req.body;
+app.post('/update', authLimiter, (req, res) => {
+  const { lat, lon, radius, favorites, alert_radius, timezone } = req.body;
   // Chat-ID wird serverseitig aus dem Token abgeleitet, NICHT aus dem Body (Punkt 1)
-  const chat_id = chatIdFromToken(token);
+  // Token bevorzugt aus Header X-Auth-Token, Body/Query als Fallback (Punkt 1)
+  const chat_id = chatIdFromToken(tokenFromReq(req));
   if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
 
   const favArr = Array.isArray(favorites) ? favorites.slice(0, 50).map(String) : [];
@@ -814,8 +862,8 @@ app.post('/update', (req, res) => {
 
 // Favoriten serverseitig abrufen (Server ist die Wahrheit, geräteübergreifend).
 // Client lädt damit beim Start + periodisch, statt die lokale Liste blind zu pushen.
-app.get('/favorites', (req, res) => {
-  const chat_id = chatIdFromToken(req.query.token);
+app.get('/favorites', authLimiter, (req, res) => {
+  const chat_id = chatIdFromToken(tokenFromReq(req));
   if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
   const st = userState[chat_id];
   res.json({
@@ -827,8 +875,8 @@ app.get('/favorites', (req, res) => {
 });
 
 // Nutzer-Daten löschen (DSGVO Art. 17)
-app.delete('/delete', (req, res) => {
-  const { token } = req.body;
+app.delete('/delete', authLimiter, (req, res) => {
+  const token = tokenFromReq(req);
   const chat_id = chatIdFromToken(token);
   if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
   let deleted = false;
@@ -1368,7 +1416,9 @@ app.get('/geocode', rateLimitGeocode, async (req, res) => {
 });
 
 app.get('/status', (req, res) => {
-  res.json({ status: 'ok', users: Object.keys(userState).length });
+  // Punkt 4: Nutzerzahl nicht mehr oeffentlich ausgeben. Die Zahl bleibt ueber den
+  // auth-geschuetzten /debug-userstate einsehbar. Hier nur noch ein reiner Health-Ping.
+  res.json({ status: 'ok' });
 });
 
 // Admin-Diagnose: gespeicherten Nutzerzustand einsehen (z.B. Favoriten pruefen)
@@ -1401,7 +1451,7 @@ app.get('/airlines', (req, res) => {
 // Heimfeeder-Proxy: nur für den Owner (per Token). Hält Feed + Koordinaten aus dem
 // öffentlichen Client heraus. ?check=1 liefert nur den Verfügbarkeitsstatus (kein Abruf).
 app.get('/feeder', async (req, res) => {
-  const chat_id = chatIdFromToken(req.query.token);
+  const chat_id = chatIdFromToken(tokenFromReq(req));
   if (!chat_id || chat_id !== OWNER_CHAT_ID) return res.status(403).json({ ok: false, error: 'forbidden' });
   if (req.query.check) {
     return res.json({ ok: true, online: !health.flags.feeder, lat: FEEDER_LAT, lon: FEEDER_LON });
@@ -1419,7 +1469,7 @@ app.get('/feeder', async (req, res) => {
 // ?check=1 liefert nur Verfügbarkeit + Koordinaten (kein Abruf).
 // Sonst: Live-Feed von airplanes.live, zentriert auf den Fixpunkt.
 app.get('/fixpoint', rateLimitAircraft, async (req, res) => {
-  const chat_id = chatIdFromToken(req.query.token);
+  const chat_id = chatIdFromToken(tokenFromReq(req));
   if (!chat_id || chat_id !== OWNER_CHAT_ID) return res.status(403).json({ ok: false, error: 'forbidden' });
   if (!FIXPOINT_OK) return res.json({ ok: false, error: 'not configured' });
   if (req.query.check) {
