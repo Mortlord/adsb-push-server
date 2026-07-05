@@ -17,6 +17,157 @@ const app = express();
 const TRUST_PROXY_HOPS = parseInt(process.env.TRUST_PROXY_HOPS || '1', 10);
 app.set('trust proxy', TRUST_PROXY_HOPS);
 
+// ── Punkt 5: Nur Anfragen ueber Cloudflare zulassen ───────────────────────────
+// Der Server akzeptiert Browser-Anfragen nur, wenn die tatsaechliche Verbindungs-IP
+// (die echte Socket-IP, NICHT das faelschbare X-Forwarded-For) aus einem offiziellen
+// Cloudflare-Bereich stammt. Damit ist der Direktzugriff auf die rohe Railway-URL
+// wirkungslos und der Rate-Limiter laesst sich nicht mehr per IP-Faelschung umgehen.
+//
+// Zwei Betriebsmodi ueber CF_ENFORCE_MODE:
+//   'warn'   -> nur loggen, nichts blockieren (zum gefahrlosen Testen)
+//   'block'  -> Nicht-Cloudflare-Anfragen mit 403 abweisen (scharf)
+// Standard ist 'warn', damit ein Deploy nie versehentlich aussperrt.
+const CF_ENFORCE_MODE = (process.env.CF_ENFORCE_MODE || 'warn').toLowerCase();
+
+// IPv4/IPv6-CIDR-Pruefung ohne externe Bibliothek.
+function ipToBigInt(ip) {
+  if (ip.includes('.')) {
+    // IPv4 -> 32-bit
+    const parts = ip.split('.');
+    if (parts.length !== 4) return null;
+    let n = 0n;
+    for (const p of parts) {
+      const b = Number(p);
+      if (!Number.isInteger(b) || b < 0 || b > 255) return null;
+      n = (n << 8n) | BigInt(b);
+    }
+    // Als IPv4-mapped IPv6 behandeln, damit ein Vergleich einheitlich ist
+    return { bits: 32, value: n };
+  }
+  // IPv6 -> 128-bit (unterstuetzt '::'-Kurzform)
+  let hextets;
+  if (ip.includes('::')) {
+    const [head, tail] = ip.split('::');
+    const h = head ? head.split(':') : [];
+    const t = tail ? tail.split(':') : [];
+    const missing = 8 - (h.length + t.length);
+    if (missing < 0) return null;
+    hextets = [...h, ...Array(missing).fill('0'), ...t];
+  } else {
+    hextets = ip.split(':');
+  }
+  if (hextets.length !== 8) return null;
+  let n = 0n;
+  for (const hx of hextets) {
+    const v = parseInt(hx || '0', 16);
+    if (Number.isNaN(v) || v < 0 || v > 0xffff) return null;
+    n = (n << 16n) | BigInt(v);
+  }
+  return { bits: 128, value: n };
+}
+
+function parseCidr(cidr) {
+  const [addr, prefixStr] = cidr.split('/');
+  const parsed = ipToBigInt(addr);
+  if (!parsed) return null;
+  const prefix = parseInt(prefixStr, 10);
+  if (!Number.isInteger(prefix)) return null;
+  return { bits: parsed.bits, base: parsed.value, prefix };
+}
+
+function ipInCidr(ip, cidr) {
+  const a = ipToBigInt(ip);
+  if (!a || a.bits !== cidr.bits) return false;
+  const hostBits = BigInt(cidr.bits - cidr.prefix);
+  if (hostBits < 0n) return false;
+  const mask = hostBits === 0n ? (~0n) : (~((1n << hostBits) - 1n));
+  return (a.value & mask) === (cidr.base & mask);
+}
+
+// Cloudflare-Bereiche im Speicher (werden beim Start geladen, dann periodisch erneuert).
+let cloudflareCidrs = [];
+
+// Faellt das Laden aus, greift diese eingebaute Liste als Sicherheitsnetz
+// (Cloudflare aendert die Bereiche extrem selten). Stand: 2024/2025.
+const CF_FALLBACK_V4 = [
+  '173.245.48.0/20','103.21.244.0/22','103.22.200.0/22','103.31.4.0/22',
+  '141.101.64.0/18','108.162.192.0/18','190.93.240.0/20','188.114.96.0/20',
+  '197.234.240.0/22','198.41.128.0/17','162.158.0.0/15','104.16.0.0/13',
+  '104.24.0.0/14','172.64.0.0/13','131.0.72.0/22'
+];
+const CF_FALLBACK_V6 = [
+  '2400:cb00::/32','2606:4700::/32','2803:f800::/32','2405:b500::/32',
+  '2405:8100::/32','2a06:98c0::/29','2c0f:f248::/32'
+];
+
+function setCidrs(v4List, v6List) {
+  const all = [...v4List, ...v6List].map(parseCidr).filter(Boolean);
+  if (all.length) cloudflareCidrs = all;
+}
+
+function fetchText(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'adsb-radar/2.0' } }, res => {
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => resolve(data));
+    }).on('error', reject).setTimeout(8000, function () { this.destroy(new Error('timeout')); });
+  });
+}
+
+async function loadCloudflareIps() {
+  try {
+    const [v4, v6] = await Promise.all([
+      fetchText('https://www.cloudflare.com/ips-v4'),
+      fetchText('https://www.cloudflare.com/ips-v6')
+    ]);
+    const v4List = v4.split('\n').map(s => s.trim()).filter(Boolean);
+    const v6List = v6.split('\n').map(s => s.trim()).filter(Boolean);
+    if (v4List.length && v6List.length) {
+      setCidrs(v4List, v6List);
+      console.log(`Cloudflare-IPs geladen: ${v4List.length} v4 + ${v6List.length} v6 Bereiche`);
+      return;
+    }
+    throw new Error('leere Liste');
+  } catch (e) {
+    console.warn(`Cloudflare-IPs konnten nicht geladen werden (${e.message}) -> eingebaute Fallback-Liste`);
+    if (!cloudflareCidrs.length) setCidrs(CF_FALLBACK_V4, CF_FALLBACK_V6);
+  }
+}
+
+// Beim Start laden und danach taeglich erneuern (unref, damit der Timer den Prozess nicht wachhaelt).
+loadCloudflareIps();
+setInterval(loadCloudflareIps, 24 * 60 * 60 * 1000).unref?.();
+
+// Normalisiert die echte Verbindungs-IP: IPv6-mapped IPv4 (::ffff:1.2.3.4) -> 1.2.3.4
+function realConnectingIp(req) {
+  let ip = req.socket?.remoteAddress || '';
+  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+  return ip;
+}
+
+function isFromCloudflare(req) {
+  const ip = realConnectingIp(req);
+  if (!ip) return false;
+  for (const cidr of cloudflareCidrs) if (ipInCidr(ip, cidr)) return true;
+  return false;
+}
+
+// Middleware fuer Endpunkte, die ausschliesslich ueber Cloudflare erreichbar sein sollen.
+// Ausnahme: Anfragen, die bereits per Admin- oder Webhook-Secret legitimiert sind
+// (Cron ueber /poll, Telegram-Webhook), duerfen weiterhin direkt kommen.
+function cloudflareOnly(req, res, next) {
+  if (isFromCloudflare(req)) return next();
+  if (CF_ENFORCE_MODE === 'block') {
+    console.warn(`CF-only: Direktzugriff abgewiesen von ${realConnectingIp(req)} auf ${req.path}`);
+    return res.status(403).json({ ok: false, error: 'direct access not allowed' });
+  }
+  // warn-Modus: nur protokollieren, durchlassen
+  console.warn(`CF-only [warn]: Nicht-Cloudflare-Zugriff von ${realConnectingIp(req)} auf ${req.path} (wuerde im block-Modus 403 erhalten)`);
+  return next();
+}
+
 // Punkt 3: Sicherheits-Header. Da die API JSON liefert und die HTML-Seiten von
 // GitHub Pages kommen, brauchen wir hier vor allem nosniff, Referrer-Sparsamkeit und
 // das Abschalten von X-Powered-By. CSP fuer die HTML-Seiten wird separat weiter unten
@@ -839,7 +990,7 @@ const authLimiter = rateLimit({
 });
 
 // App schickt Standort + Favoriten
-app.post('/update', authLimiter, (req, res) => {
+app.post('/update', cloudflareOnly, authLimiter, (req, res) => {
   const { lat, lon, radius, favorites, alert_radius, timezone } = req.body;
   // Chat-ID wird serverseitig aus dem Token abgeleitet, NICHT aus dem Body (Punkt 1)
   // Token bevorzugt aus Header X-Auth-Token, Body/Query als Fallback (Punkt 1)
@@ -861,7 +1012,7 @@ app.post('/update', authLimiter, (req, res) => {
 
 // Favoriten serverseitig abrufen (Server ist die Wahrheit, geräteübergreifend).
 // Client lädt damit beim Start + periodisch, statt die lokale Liste blind zu pushen.
-app.get('/favorites', authLimiter, (req, res) => {
+app.get('/favorites', cloudflareOnly, authLimiter, (req, res) => {
   const chat_id = chatIdFromToken(tokenFromReq(req));
   if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
   const st = userState[chat_id];
@@ -874,7 +1025,7 @@ app.get('/favorites', authLimiter, (req, res) => {
 });
 
 // Nutzer-Daten löschen (DSGVO Art. 17)
-app.delete('/delete', authLimiter, (req, res) => {
+app.delete('/delete', cloudflareOnly, authLimiter, (req, res) => {
   const token = tokenFromReq(req);
   const chat_id = chatIdFromToken(token);
   if (!chat_id) return res.status(401).json({ ok: false, error: 'invalid token' });
@@ -1228,7 +1379,7 @@ setInterval(() => {
 
 // Normalisiert Route aus AeroDataBox oder adsbdb
 // GET /route?callsign=DLH1234
-app.get('/route', rateLimitRoute, async (req, res) => {
+app.get('/route', cloudflareOnly, rateLimitRoute, async (req, res) => {
   const callsign = (req.query.callsign || '').trim().toUpperCase();
   if (!callsign) return res.json({ route: null });
   // Nur plausible Callsigns zulassen (2-8 alphanumerische Zeichen), sonst keine API-Calls (Punkt 5)
@@ -1380,7 +1531,7 @@ function formatNominatim(d) {
 }
 
 // GET /geocode?lat=47.97&lon=7.83
-app.get('/geocode', rateLimitGeocode, async (req, res) => {
+app.get('/geocode', cloudflareOnly, rateLimitGeocode, async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
   if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
@@ -1414,7 +1565,7 @@ app.get('/geocode', rateLimitGeocode, async (req, res) => {
   }
 });
 
-app.get('/status', (req, res) => {
+app.get('/status', cloudflareOnly, (req, res) => {
   // Punkt 4: Nutzerzahl nicht mehr oeffentlich ausgeben. Die Zahl bleibt ueber den
   // auth-geschuetzten /debug-userstate einsehbar. Hier nur noch ein reiner Health-Ping.
   res.json({ status: 'ok' });
@@ -1441,7 +1592,7 @@ app.get('/debug-userstate', requireAdmin, (req, res) => {
   return res.json({ users: Object.keys(userState).length, state: out });
 });
 
-app.get('/airlines', (req, res) => {
+app.get('/airlines', cloudflareOnly, (req, res) => {
   res.json(AIRLINE_NAMES);
 });
 
@@ -1449,7 +1600,7 @@ app.get('/airlines', (req, res) => {
 // Akzeptiert nur numerische Koordinaten und ruft ausschliesslich die bekannten Upstreams auf
 // Heimfeeder-Proxy: nur für den Owner (per Token). Hält Feed + Koordinaten aus dem
 // öffentlichen Client heraus. ?check=1 liefert nur den Verfügbarkeitsstatus (kein Abruf).
-app.get('/feeder', async (req, res) => {
+app.get('/feeder', cloudflareOnly, async (req, res) => {
   const chat_id = chatIdFromToken(tokenFromReq(req));
   if (!chat_id || chat_id !== OWNER_CHAT_ID) return res.status(403).json({ ok: false, error: 'forbidden' });
   if (req.query.check) {
@@ -1467,7 +1618,7 @@ app.get('/feeder', async (req, res) => {
 // Koordinaten stehen NICHT im Frontend, sondern fest im Backend (FIXPOINT_LAT/LON).
 // ?check=1 liefert nur Verfügbarkeit + Koordinaten (kein Abruf).
 // Sonst: Live-Feed von airplanes.live, zentriert auf den Fixpunkt.
-app.get('/fixpoint', rateLimitAircraft, async (req, res) => {
+app.get('/fixpoint', cloudflareOnly, rateLimitAircraft, async (req, res) => {
   const chat_id = chatIdFromToken(tokenFromReq(req));
   if (!chat_id || chat_id !== OWNER_CHAT_ID) return res.status(403).json({ ok: false, error: 'forbidden' });
   if (!FIXPOINT_OK) return res.json({ ok: false, error: 'not configured' });
@@ -1484,7 +1635,7 @@ app.get('/fixpoint', rateLimitAircraft, async (req, res) => {
   }
 });
 
-app.get('/aircraft', rateLimitAircraft, async (req, res) => {
+app.get('/aircraft', cloudflareOnly, rateLimitAircraft, async (req, res) => {
   recordVisitor(req);
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
