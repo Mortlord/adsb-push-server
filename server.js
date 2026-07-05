@@ -192,15 +192,14 @@ function chatIdFromToken(token) {
   return tokenIndex[token] || null;
 }
 
-// Punkt 1: Token bevorzugt aus dem Header X-Auth-Token lesen, dann aus dem Body,
-// und nur als Abwaertskompatibilitaets-Fallback aus der Query. Query-Parameter landen
-// in Zugriffs-Logs und im Referer, der Header nicht. Aeltere Clients funktionieren
-// weiter, neue Clients senden ausschliesslich den Header.
+// Punkt 1: Token ausschliesslich aus dem Header X-Auth-Token oder dem Body lesen.
+// Der frueher vorhandene Query-Fallback wurde entfernt, damit der Token nicht mehr in
+// URLs und damit in Zugriffs-Logs oder im Referer landen kann. Alle Clients senden den
+// Token seit der Umstellung im Header (bzw. /update und /delete im Body).
 function tokenFromReq(req) {
   const h = req.get('X-Auth-Token');
   if (h) return h.trim();
   if (req.body && typeof req.body.token === 'string' && req.body.token) return req.body.token;
-  if (req.query && typeof req.query.token === 'string' && req.query.token) return req.query.token;
   return '';
 }
 
