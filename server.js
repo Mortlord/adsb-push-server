@@ -427,19 +427,42 @@ function fetchFromUrl(url, extraHeaders) {
     const req = https.get(url, { headers: { 'User-Agent': 'adsb-radar/2.0', ...(extraHeaders || {}) } }, res => {
       let data = '';
       res.on('data', c => data += c);
-      res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
+      res.on('end', () => {
+        // Wichtig: Statuscode zuerst pruefen. Fehlerantworten (403/429/5xx) kommen bei
+        // vielen APIs als gueltiges JSON zurueck. Ohne diese Pruefung wuerde JSON.parse
+        // gelingen und das Fehlerobjekt als vermeintliches Ergebnis durchgereicht --
+        // der Fallback greift dann nie und die Liste bleibt leer.
+        if (res.statusCode >= 400) {
+          return reject(new Error(`HTTP ${res.statusCode}: ${String(data).slice(0, 200)}`));
+        }
+        try { resolve(JSON.parse(data)); } catch(e) { reject(e); }
+      });
     });
     req.on('error', reject);
     req.setTimeout(10000, () => { req.destroy(new Error('fetchAircraft timeout')); });
   });
 }
 
+// Vereinheitlicht die Antworten beider Quellen auf { ac: [], total: n }.
+// airplanes.live liefert 'ac', adsb.fi liefert je nach Version 'ac' oder 'aircraft'.
+function normalizeAircraft(data) {
+  const list = Array.isArray(data?.ac) ? data.ac
+             : Array.isArray(data?.aircraft) ? data.aircraft
+             : [];
+  return { ac: list, total: Number.isFinite(data?.total) ? data.total : list.length };
+}
+
 async function fetchAircraft(lat, lon, radius) {
   try {
-    return await fetchFromUrl(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`);
+    return normalizeAircraft(await fetchFromUrl(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`));
   } catch(e) {
     console.warn(`airplanes.live fehler (${e.message}), Fallback auf adsb.fi`);
-    return await fetchFromUrl(`https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${radius}`);
+    try {
+      return normalizeAircraft(await fetchFromUrl(`https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${radius}`));
+    } catch(e2) {
+      console.error(`adsb.fi Fallback ebenfalls fehlgeschlagen (${e2.message})`);
+      throw e2;
+    }
   }
 }
 
