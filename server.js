@@ -452,18 +452,92 @@ function normalizeAircraft(data) {
   return { ac: list, total: Number.isFinite(data?.total) ? data.total : list.length };
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ── Schutz vor 429 bei adsb.fi ───────────────────────────────────────────────
+// adsb.fi erlaubt etwa eine Anfrage pro Sekunde. Die Poll-Schleife ruft
+// fetchAircraft() aber einmal je Nutzer in unmittelbarer Folge auf. Ohne
+// Serialisierung treffen dort N+1 Anfragen gleichzeitig ein und alle laufen in 429.
+// ADSBFI_MIN_GAP_MS haelt einen Mindestabstand ein; die Warteschlange ist eine
+// einfache Promise-Kette, damit parallele Aufrufer sich einreihen statt zu draengeln.
+const ADSBFI_MIN_GAP_MS = parseInt(process.env.ADSBFI_MIN_GAP_MS, 10) || 1200;
+let adsbFiQueue = Promise.resolve();
+let adsbFiLastTs = 0;
+
+function adsbFiThrottled(url) {
+  const run = adsbFiQueue.then(async () => {
+    const wait = ADSBFI_MIN_GAP_MS - (Date.now() - adsbFiLastTs);
+    if (wait > 0) await sleep(wait);
+    adsbFiLastTs = Date.now();
+    return fetchFromUrl(url);
+  });
+  // Kette darf nicht durch einen Fehler abreissen, sonst blockiert sie dauerhaft
+  adsbFiQueue = run.then(() => {}, () => {});
+  return run;
+}
+
+// ── Kurzcache ───────────────────────────────────────────────────────────────
+// Mehrere Nutzer mit gleichem Standort und Radius sowie Browser-Aufrufe auf
+// /aircraft fragen dieselben Koordinaten ab. Ein kurzer Cache halbiert die
+// Aussenlast, ohne die Aktualitaet spuerbar zu verschlechtern.
+const AC_CACHE_TTL_MS = parseInt(process.env.AC_CACHE_TTL_MS, 10) || 20000;
+const acCache = new Map();
+
+// ── Circuit Breaker fuer airplanes.live ─────────────────────────────────────
+// Solange airplanes.live mit 403 antwortet (fehlender Contributor-Zugang), ist
+// jeder Versuch verlorene Zeit und verzoegert den Fallback. Nach einem 403 wird
+// die Quelle fuer AL_COOLDOWN_MS uebersprungen und danach einmal neu geprueft,
+// damit ein freigeschalteter Zugang von selbst wieder greift.
+const AL_COOLDOWN_MS = parseInt(process.env.AL_COOLDOWN_MS, 10) || 30 * 60 * 1000;
+let alBlockedUntil = 0;
+
 async function fetchAircraft(lat, lon, radius) {
-  try {
-    return normalizeAircraft(await fetchFromUrl(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`));
-  } catch(e) {
-    console.warn(`airplanes.live fehler (${e.message}), Fallback auf adsb.fi`);
+  const key = `${lat}/${lon}/${radius}`;
+  const hit = acCache.get(key);
+  if (hit && Date.now() - hit.ts < AC_CACHE_TTL_MS) return hit.data;
+
+  let result = null;
+
+  if (Date.now() >= alBlockedUntil) {
     try {
-      return normalizeAircraft(await fetchFromUrl(`https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${radius}`));
-    } catch(e2) {
-      console.error(`adsb.fi Fallback ebenfalls fehlgeschlagen (${e2.message})`);
-      throw e2;
+      result = normalizeAircraft(await fetchFromUrl(`https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`));
+      alBlockedUntil = 0;
+    } catch(e) {
+      if (/HTTP 40[13]/.test(e.message)) {
+        alBlockedUntil = Date.now() + AL_COOLDOWN_MS;
+        console.warn(`airplanes.live gesperrt (${e.message.slice(0, 120)}), pausiere ${Math.round(AL_COOLDOWN_MS/60000)} Min`);
+      } else {
+        console.warn(`airplanes.live fehler (${e.message}), Fallback auf adsb.fi`);
+      }
     }
   }
+
+  if (!result) {
+    const url = `https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${radius}`;
+    try {
+      result = normalizeAircraft(await adsbFiThrottled(url));
+    } catch(e) {
+      // Einmaliger Wiederholversuch bei Drosselung, danach aufgeben
+      if (/HTTP 429/.test(e.message)) {
+        await sleep(2000);
+        try {
+          result = normalizeAircraft(await adsbFiThrottled(url));
+        } catch(e2) {
+          console.error(`adsb.fi Fallback ebenfalls fehlgeschlagen (${e2.message})`);
+          throw e2;
+        }
+      } else {
+        console.error(`adsb.fi Fallback ebenfalls fehlgeschlagen (${e.message})`);
+        throw e;
+      }
+    }
+  }
+
+  acCache.set(key, { ts: Date.now(), data: result });
+  if (acCache.size > 200) {
+    for (const [k, v] of acCache) if (Date.now() - v.ts > AC_CACHE_TTL_MS) acCache.delete(k);
+  }
+  return result;
 }
 
 function haversine(lat1, lon1, lat2, lon2) {
